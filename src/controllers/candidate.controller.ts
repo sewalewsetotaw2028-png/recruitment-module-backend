@@ -131,15 +131,17 @@ export const apply = async (
     const company_id = Number(req.user!.company_id);
 
     // Handle file upload for cover letter
-    let coverLetterData = applyVacancySchema.parse(req.body);
+    let coverLetterData: any = applyVacancySchema.parse(req.body);
 
     if (req.file && req.file.fieldname === 'cover_letter_file') {
       // Upload file and get URL
       const { CloudinaryService } =
         await import('../services/cloudinary.service');
       const uploadedUrl = await CloudinaryService.uploadFile(
-        req.file,
+        req.file.buffer,
+        req.file.originalname,
         'cover-letters',
+        'raw'
       );
       coverLetterData = {
         ...coverLetterData,

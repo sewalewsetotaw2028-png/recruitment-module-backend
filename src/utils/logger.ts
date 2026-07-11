@@ -44,7 +44,7 @@ function details(obj?: Record<string, unknown>): string {
   );
 }
 
-function hr(char = '─', len = 64, color = C.gray): string {
+function hr(char = '─', len = 64, color: string = C.gray): string {
   return `${color}${char.repeat(len)}${C.reset}`;
 }
 

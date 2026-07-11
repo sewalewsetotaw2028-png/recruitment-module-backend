@@ -77,7 +77,7 @@ const safeCount = async (countFn: () => Promise<number>, modelName: string) => {
     return await countFn();
   } catch (error: any) {
     if (error?.code === 'P2021') {
-      logger.warn(`${modelName} table missing, returning 0 for metrics`);
+      logger.warn('reporting', `${modelName} table missing, returning 0 for metrics`);
       return 0;
     }
     throw error;
@@ -383,7 +383,12 @@ export class ReportingService {
         accepted_at: true,
         application: {
           select: {
-            submitted_at: true
+            submitted_at: true,
+            vacancy: {
+              select: {
+                approved_at: true
+              }
+            }
           }
         }
       }

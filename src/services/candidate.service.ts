@@ -288,76 +288,7 @@ export class CandidateService {
 
   // ─── Profile ─────────────────────────────────────────────────────────────────
 
-  // 4. Submit Application (FR-22)
-  static async submitApplication(
-    candidate_id: string,
-    company_id: string,
-    data: ApplyVacancyDTO,
-  ) {
-    const existing = await prisma.application.findFirst({
-      where: { candidateId: candidate_id, vacancyId: data.vacancy_id },
-    });
-    if (existing)
-      throw new AppError('You have already applied for this position', 400);
-
-    return await prisma.application.create({
-      data: {
-        organizationId: company_id,
-        candidateId: candidate_id,
-        vacancyId: data.vacancy_id,
-        status: 'SUBMITTED',
-        currentStage: 'screening',
-        updatedAt: new Date(),
-      },
-    });
-  }
-
-  static async getApplications(company_id: string, candidate_id?: string) {
-    const whereClause = candidate_id
-      ? { company_id: parseInt(company_id), candidate_id: candidate_id }
-      : { company_id: parseInt(company_id) };
-
-    return await prisma.application.findMany({
-      where: whereClause,
-      include: {
-        candidate: {
-          select: { id: true, first_name: true, last_name: true, email: true },
-        },
-        vacancy: {
-          select: {
-            id: true,
-            title: true,
-            location: true,
-            employment_type: true,
-          },
-        },
-        interviews: {
-          select: {
-            id: true,
-            interview_number: true,
-            round: true,
-            status: true,
-            start_time: true,
-            end_time: true,
-            mode: true,
-          },
-          orderBy: { start_time: 'asc' },
-        },
-        offers: {
-          select: {
-            id: true,
-            status: true,
-            accepted_at: true,
-            created_at: true,
-          },
-          orderBy: { created_at: 'desc' },
-        },
-      },
-      orderBy: { submitted_at: 'desc' },
-    });
-  }
-
-  static async getScreeningApplications(company_id: string) {
+    static async getScreeningApplications(company_id: string) {
     return this.getApplicationsForCompany(company_id, {
       status: { in: ['SUBMITTED', 'UNDER_SCREENING'] },
     });
@@ -403,10 +334,10 @@ export class CandidateService {
       orderBy: { submitted_at: 'desc' },
     });
 
-    const vacancyIds = Array.from(
+    const vacancy_ids = Array.from(
       new Set(applications.map((application) => application.vacancy_id)),
     );
-    const candidateIds = Array.from(
+    const candidate_ids = Array.from(
       new Set(applications.map((application) => application.candidate_id)),
     );
 
@@ -415,14 +346,14 @@ export class CandidateService {
         where: {
           company_id: numericCompanyId,
           is_active: true,
-          OR: [{ vacancy_id: { in: vacancyIds } }, { vacancy_id: null }],
+          OR: [{ vacancy_id: { in: vacancy_ids } }, { vacancy_id: null }],
         },
         orderBy: { updated_at: 'desc' },
       }),
       prisma.screeningLog.findMany({
         where: {
-          vacancy_id: { in: vacancyIds },
-          candidate_id: { in: candidateIds },
+          vacancy_id: { in: vacancy_ids },
+          candidate_id: { in: candidate_ids },
         },
         orderBy: { screened_at: 'desc' },
       }),
@@ -536,40 +467,7 @@ export class CandidateService {
     });
   }
 
-  // 5. Add Candidate Document
-  static async addDocument(candidate_id: string, file: Express.Multer.File) {
-    // Verify candidate exists
-    const candidate = await prisma.candidate.findUnique({
-      where: { id: candidate_id },
-    });
-    if (!candidate) {
-      throw new AppError('Candidate not found', 404);
-    }
-    return await prisma.candidateDocument.create({
-      data: {
-        candidateId: candidate_id,
-        name: file.originalname,
-        type: file.mimetype,
-        fileUrl: `/uploads/${file.filename}`,
-      },
-    });
-  }
-
-  // 6. Get Candidate Documents
-  static async getDocuments(candidate_id: string) {
-    // Verify candidate exists
-    const candidate = await prisma.candidate.findUnique({
-      where: { id: candidate_id },
-    });
-    if (!candidate) {
-      throw new AppError('Candidate not found', 404);
-    }
-    return await prisma.candidateDocument.findMany({
-      where: { candidateId: candidate_id },
-    });
-  }
-
-  // 7. Get Candidate Profile (including experiences, educations, documents)
+    // 7. Get Candidate Profile (including experiences, educations, documents)
 
   static async getProfile(candidate_id: string) {
     const candidate = await prisma.candidate.findUnique({
@@ -819,19 +717,13 @@ export class CandidateService {
         key: 'skills',
         label: 'Skills',
         path: '/candidate/profile',
-        complete: Array.isArray(candidate.skills)
-          ? candidate.skills.length > 0
-          : typeof candidate.skills === 'string' &&
-            candidate.skills.trim().length > 0,
+        complete: Boolean(candidate.skills && candidate.skills.length > 0),
       },
       {
         key: 'languages',
         label: 'Languages',
         path: '/candidate/profile',
-        complete: Array.isArray(candidate.languages)
-          ? candidate.languages.length > 0
-          : typeof candidate.languages === 'string' &&
-            candidate.languages.trim().length > 0,
+        complete: Boolean(candidate.languages && candidate.languages.length > 0),
       },
       {
         key: 'documents',

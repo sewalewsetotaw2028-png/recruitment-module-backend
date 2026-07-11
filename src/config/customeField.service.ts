@@ -15,7 +15,7 @@ export class CustomFieldService {
     value: string,
   ) {
     const existing = await prisma.customFieldValue.findFirst({
-      where: { customFieldId: fieldId, entityId: entity_id },
+      where: { custom_field_id: fieldId, entity_id: entity_id },
     });
     if (existing) {
       return await prisma.customFieldValue.update({
@@ -24,7 +24,7 @@ export class CustomFieldService {
       });
     }
     return await prisma.customFieldValue.create({
-      data: { customFieldId: fieldId, entityId: entity_id, value },
+      data: { custom_field_id: fieldId, entity_id: entity_id, value },
     });
   }
 }

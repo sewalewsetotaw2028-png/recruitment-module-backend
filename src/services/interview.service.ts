@@ -840,7 +840,6 @@ export class InterviewService {
         | 'STRONGLY_RECOMMEND'
         | 'RECOMMEND'
         | 'HOLD'
-        | 'NEUTRAL'
         | 'DO_NOT_RECOMMEND';
     },
   ) {
@@ -1013,7 +1012,6 @@ export class InterviewService {
         | 'STRONGLY_RECOMMEND'
         | 'RECOMMEND'
         | 'HOLD'
-        | 'NEUTRAL'
         | 'DO_NOT_RECOMMEND';
     },
   ) {

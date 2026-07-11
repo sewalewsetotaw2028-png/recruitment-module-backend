@@ -13,7 +13,7 @@ import {
 export interface AuthRequest extends Request {
   user?: {
     id: string;
-    company_id: string | number;
+    company_id: any;
     roles?: string[];
     role?: string;
     permissions?: PermissionKey[];

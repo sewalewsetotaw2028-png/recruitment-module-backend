@@ -14,11 +14,10 @@
     "emitDecoratorMetadata": true,
     "baseUrl": ".",
     "types": ["node"],
-    "ignoreDeprecations": "6.0",
     "paths": {
       "*": ["node_modules/*", "src/*"]
     }
   },
-  "include": ["src/**/*", "prisma/**/*"],
+  "include": ["src/**/*"],
   "exclude": ["node_modules", "**/*.spec.ts"]
 }

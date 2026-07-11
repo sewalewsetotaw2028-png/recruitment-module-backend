@@ -9,7 +9,7 @@ import {
   WorkforcePlanStatus,
 } from '@prisma/client';
 import {
-  CreateDepartmentDTO,
+  CreatedepartmentDTO,
   CreateWorkforcePlanDTO,
   UpdateWorkforcePlanDTO,
 } from '../types/workforce.type';
@@ -414,7 +414,7 @@ export class WorkforceService {
   // --- Department Logic ---
   static async createDepartment(
     company_id: string | number,
-    data: CreateDepartmentDTO,
+    data: CreatedepartmentDTO,
   ) {
     const companyId = this.toCompanyId(company_id);
     const parentDepartmentId =
@@ -1219,15 +1219,6 @@ export class WorkforceService {
           action: 'WORKFORCE_PLAN_CLOSED',
           entity_type: 'WorkforcePlan',
           entity_id: planId,
-        },
-      });
-      await tx.recruitmentApprovalHistory.create({
-        data: {
-          entity_type: 'WorkforcePlan',
-          entity_id: planId,
-          action: 'CLOSED',
-          actor_user_id: actorUserId,
-          comments: null,
         },
       });
       const plan = await tx.workforcePlan.update({

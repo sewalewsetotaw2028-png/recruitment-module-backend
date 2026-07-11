@@ -358,8 +358,7 @@ export const submitEvaluationSchema = z
     recommendation: z.enum([
       'STRONGLY_RECOMMEND',
       'RECOMMEND',
-      'HOLD',       // matches frontend option and EvaluationRecommendation schema enum
-      'NEUTRAL',    // legacy alias — keep for backward compat
+      'HOLD',
       'DO_NOT_RECOMMEND',
     ]),
   })

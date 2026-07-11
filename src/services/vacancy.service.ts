@@ -3,14 +3,14 @@ import { AppError } from '../utils/AppError';
 import { CreateVacancyDTO } from '../types/recruitment.types';
 import { Decimal } from '@prisma/client/runtime/library';
 
-const assertCompanyRecord = (
-  record: { company_id: number | string } | null,
+export function assertCompanyRecord<T extends { company_id: number | string }>(
+  record: T | null | undefined,
   company_id: string | number,
-): void => {
+): asserts record is T {
   if (!record || String(record.company_id) !== String(company_id)) {
     throw new AppError('Not found or unauthorized', 404);
   }
-};
+}
 
 const toEmploymentType = (value?: string) => {
   const employmentType = String(value ?? 'full_time').toUpperCase();

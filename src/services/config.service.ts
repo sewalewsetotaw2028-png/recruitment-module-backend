@@ -920,7 +920,8 @@ export class ConfigService {
 
     // If criteria array is provided, replace all EvaluationCriteria atomically
     if (data.criteria) {
-      const weightSum = data.criteria.reduce((sum, c) => sum + c.weight, 0);
+      const criteria = data.criteria;
+      const weightSum = criteria.reduce((sum, c) => sum + c.weight, 0);
       if (weightSum !== 100) {
         throw new AppError('Criteria weights must sum to 100', 400);
       }
@@ -933,7 +934,7 @@ export class ConfigService {
 
         // Insert new criteria
         await tx.evaluationCriteria.createMany({
-          data: data.criteria.map((c) => ({
+          data: criteria.map((c) => ({
             template_id: id,
             name: c.name,
             weight: c.weight,
@@ -1269,7 +1270,7 @@ export class ConfigService {
       select: {
         interview_category_id: true,
         application: {
-          select: { organizationId: true },
+          select: { company_id: true },
         },
       },
     });
@@ -1278,7 +1279,7 @@ export class ConfigService {
       throw new AppError('Interview not found', 404);
     }
 
-    const companyId = interview.application?.organizationId;
+    const companyId = interview.application?.company_id;
     if (!companyId) {
       throw new AppError('Interview company not found', 500);
     }

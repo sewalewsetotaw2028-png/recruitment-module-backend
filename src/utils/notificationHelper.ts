@@ -11,9 +11,10 @@ export const sendNotification = async (
   try {
     // 1. Log to Application Log
     logger.info(
+      'notificationHelper',
       `🔔 NOTIFICATION to ${recipient_id}: ${message} [type=${type}, recipientType=${recipient_type}]`,
     );
   } catch (error) {
-    logger.error('Failed to send notification', error);
+    logger.error('notificationHelper', 'Failed to send notification', error);
   }
 };

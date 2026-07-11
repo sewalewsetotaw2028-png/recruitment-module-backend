@@ -29,9 +29,13 @@ export const getVacancyById = async (
 ) => {
   try {
     const vacancy = await VacancyService.getVacancyById(
-      req.user!.company_id,
+      req.user!.company_id as number,
       String(req.params.vacancy_id),
     );
+
+    if (!vacancy) {
+      return res.status(404).json({ status: 'error', message: 'Vacancy not found' });
+    }
 
     const timeToFillDays =
       vacancy.filled_at && vacancy.created_at

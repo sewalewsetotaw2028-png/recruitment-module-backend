@@ -27,7 +27,7 @@ export class CloudinaryService {
 
   // ─── Local Fallback ────────────────────────────────────────────────────────
 
-  private static async saveLocalFallback(
+  public static async saveLocalFallback(
     fileBuffer: Buffer,
     fileName: string,
     folder: string,
