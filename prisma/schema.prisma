@@ -1,0 +1,1383 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Company {
+  id                             Int                           @id @default(autoincrement())
+  company_code                   String                        @unique
+  name                           String
+  logo_url                       String?
+  primary_color                  String?                       @default("#e55400")
+  secondary_color                String?                       @default("#ffda00")
+  stamp_url                      String?
+  industry                       String?
+  email                          String                        @unique
+  phone                          String?
+  address                        String?
+  website                        String?
+  is_active                      Boolean                       @default(true)
+  is_deleted                     Boolean                       @default(false)
+  deleted_at                     DateTime?
+  created_at                     DateTime                      @default(now())
+  updated_at                     DateTime                      @updatedAt
+  addresses                      Address[]
+  app_roles                      AppRole[]
+  applications                   Application[]
+  approval_workflows             ApprovalWorkflow[]
+  candidates                     Candidate[]
+  candidate_documents            CandidateDocument[]
+  company_subscriptions          CompanySubscription[]
+  custom_fields                  CustomField[]
+  departments                    Department[]
+  interview_categories           InterviewCategory[]
+  interview_evaluation_templates InterviewEvaluationTemplate[]
+  job_descriptions               JobDescription[]
+  job_templates                  JobTemplate[]
+  notifications                  Notification[]
+  notification_templates         NotificationTemplate[]
+  offers                         Offer[]
+  phones                         Phone[]
+  recruitment_channels           RecruitmentChannel[]
+  recruitment_requests           RecruitmentRequest[]
+  recruitment_sources            RecruitmentSource[]
+  screening_criteria             ScreeningCriteria[]
+  talent_rosters                 TalentRoster[]
+  users                          User[]
+  vacancies                      Vacancy[]
+  vacancy_job_postings           VacancyJobPosting[]
+  workforce_plans                WorkforcePlan[]
+
+  @@map("company")
+}
+
+model User {
+  id                     String                       @id @default(uuid())
+  company_id             Int
+  first_name             String
+  last_name              String
+  email                  String                       @unique
+  phone                  String?
+  password_hash          String
+  gender                 Gender?
+  date_of_birth          DateTime?
+  profile_picture_url    String?
+  is_active              Boolean                      @default(true)
+  last_login             DateTime?
+  created_at             DateTime                     @default(now())
+  updated_at             DateTime                     @updatedAt
+  is_email_verified      Boolean                      @default(false)
+  terms_accepted         Boolean                      @default(false)
+  google_id              String?
+  employee_id            String?
+  addresses              Address[]
+  role_assignments_made  AppUserRole[]                @relation("RoleAssignments")
+  app_user_roles         AppUserRole[]
+  departments            Department[]                 @relation("DepartmentManager")
+  approved_minutes       HiringMinute[]               @relation("ApprovedMinutes")
+  prepared_minutes       HiringMinute[]               @relation("PreparedMinutes")
+  interview_evaluations  InterviewEvaluation[]
+  interview_panels       InterviewPanel[]
+  notifications          Notification[]
+  offers                 Offer[]
+  phones                 Phone[]
+  approval_histories     RecruitmentApprovalHistory[]
+  approved_requests      RecruitmentRequest[]         @relation("ApprovedRequests")
+  requested_requests     RecruitmentRequest[]         @relation("RequestedRequests")
+  screening_logs         ScreeningLog[]               @relation("ScreenedBy")
+  shortlisted_candidates ShortlistedCandidate[]       @relation("ShortlistedBy")
+  talent_rosters         TalentRoster[]
+  company                Company                      @relation(fields: [company_id], references: [id])
+  approved_plans         WorkforcePlan[]              @relation("ApprovedPlans")
+  created_plans          WorkforcePlan[]              @relation("CreatedPlans")
+  returned_plans         WorkforcePlan[]              @relation("ReturnedPlans")
+
+  @@map("user")
+}
+
+model AppRole {
+  id               String              @id @default(uuid())
+  company_id       Int
+  name             String
+  slug             String
+  description      String?
+  is_system        Boolean             @default(false)
+  created_at       DateTime            @default(now())
+  updated_at       DateTime            @updatedAt
+  company          Company             @relation(fields: [company_id], references: [id])
+  role_permissions AppRolePermission[]
+  app_user_roles   AppUserRole[]
+
+  @@unique([company_id, slug])
+  @@map("app_role")
+}
+
+model AppPermission {
+  id               String              @id @default(uuid())
+  name             String
+  slug             String              @unique
+  module           String
+  action           String
+  description      String?
+  created_at       DateTime            @default(now())
+  role_permissions AppRolePermission[]
+
+  @@map("app_permission")
+}
+
+model AppRolePermission {
+  id            String        @id @default(uuid())
+  role_id       String
+  permission_id String
+  permission    AppPermission @relation(fields: [permission_id], references: [id])
+  role          AppRole       @relation(fields: [role_id], references: [id], onDelete: Cascade)
+
+  @@unique([role_id, permission_id])
+  @@map("app_role_permission")
+}
+
+model AppUserRole {
+  id             String   @id @default(uuid())
+  user_id        String
+  role_id        String
+  assigned_at    DateTime @default(now())
+  assigned_by_id String?
+  assigned_by    User?    @relation("RoleAssignments", fields: [assigned_by_id], references: [id])
+  role           AppRole  @relation(fields: [role_id], references: [id])
+  user           User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([user_id, role_id])
+  @@map("app_user_role")
+}
+
+model ApprovalWorkflow {
+  id          String                  @id @default(uuid())
+  company_id  Int
+  name        String
+  entity_type String
+  is_active   Boolean                 @default(true)
+  created_at  DateTime                @default(now())
+  updated_at  DateTime                @updatedAt
+  company     Company                 @relation(fields: [company_id], references: [id], onDelete: Cascade)
+  stages      ApprovalWorkflowStage[]
+
+  @@map("approval_workflow")
+}
+
+model ApprovalWorkflowStage {
+  id               String           @id @default(uuid())
+  workflow_id      String
+  stage_order      Int
+  stage_name       String
+  approver_role_id String?
+  is_mandatory     Boolean          @default(true)
+  created_at       DateTime         @default(now())
+  workflow         ApprovalWorkflow @relation(fields: [workflow_id], references: [id], onDelete: Cascade)
+
+  @@unique([workflow_id, stage_order])
+  @@map("approval_workflow_stage")
+}
+
+model NotificationTemplate {
+  id         String           @id @default(uuid())
+  company_id Int
+  type       NotificationType
+  subject    String
+  body_html  String
+  body_sms   String?
+  is_active  Boolean          @default(true)
+  created_at DateTime         @default(now())
+  updated_at DateTime         @updatedAt
+  company    Company          @relation(fields: [company_id], references: [id], onDelete: Cascade)
+
+  @@unique([company_id, type])
+  @@map("notification_template")
+}
+
+model NotificationVariable {
+  id                String           @id @default(uuid())
+  notification_type NotificationType
+  variable_key      String
+  description       String?
+  example_value     String?
+
+  @@unique([notification_type, variable_key])
+  @@map("notification_variable")
+}
+
+model Notification {
+  id                  String           @id @default(uuid())
+  company_id          Int
+  user_id             String?
+  candidate_id        String?
+  type                NotificationType
+  title               String
+  message             String
+  action_url          String?
+  related_entity_type String?
+  related_entity_id   String?
+  is_read             Boolean          @default(false)
+  email_sent          Boolean          @default(false)
+  email_sent_at       DateTime?
+  sms_sent            Boolean          @default(false)
+  sms_sent_at         DateTime?
+  delivery_error      String?
+  retry_count         Int              @default(0)
+  created_at          DateTime         @default(now())
+  read_at             DateTime?
+  candidate           Candidate?       @relation(fields: [candidate_id], references: [id], onDelete: Cascade)
+  company             Company          @relation(fields: [company_id], references: [id], onDelete: Cascade)
+  user                User?            @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id, is_read])
+  @@index([candidate_id, is_read])
+  @@index([company_id, created_at])
+  @@map("notification")
+}
+
+model Department {
+  id                   Int                  @id @default(autoincrement())
+  company_id           Int
+  name                 String
+  parent_department_id Int?
+  manager_id           String?
+  company              Company              @relation(fields: [company_id], references: [id])
+  manager              User?                @relation("DepartmentManager", fields: [manager_id], references: [id])
+  parent_department    Department?          @relation("DepartmentSelf", fields: [parent_department_id], references: [id])
+  sub_departments      Department[]         @relation("DepartmentSelf")
+  recruitment_requests RecruitmentRequest[]
+  vacancies            Vacancy[]
+  workforce_plan_items WorkforcePlanItem[]
+
+  @@unique([company_id, name])
+  @@map("department")
+}
+
+model WorkforcePlan {
+  id                   String              @id @default(uuid())
+  company_id           Int
+  title                String
+  planning_period      PlanningPeriod
+  status               WorkforcePlanStatus @default(DRAFT)
+  created_by_user_id   String
+  approved_by_user_id  String?
+  approval_date        DateTime?
+  version_number       Int                 @default(1)
+  justification        String
+  created_at           DateTime            @default(now())
+  updated_at           DateTime            @updatedAt
+  planning_year        Int?
+  planning_quarter     PlanningQuarter?
+  planning_month       Int?
+  business_unit        String?
+  submitted_at         DateTime?
+  hr_comments          String?
+  ceo_comments         String?
+  supporting_documents String[]            @default([])
+  returned_comments    String?
+  returned_at          DateTime?
+  returned_by_user_id  String?
+  approved_by          User?               @relation("ApprovedPlans", fields: [approved_by_user_id], references: [id])
+  company              Company             @relation(fields: [company_id], references: [id])
+  created_by           User                @relation("CreatedPlans", fields: [created_by_user_id], references: [id])
+  returned_by          User?               @relation("ReturnedPlans", fields: [returned_by_user_id], references: [id])
+  workforce_plan_items WorkforcePlanItem[]
+
+  @@map("workforce_plan")
+}
+
+model WorkforcePlanItem {
+  id                       String               @id @default(uuid())
+  workforce_plan_id        String
+  department_id            Int
+  job_title                String
+  employment_type          EmploymentType
+  headcount                Int
+  planned_start            DateTime
+  justification            String
+  created_at               DateTime             @default(now())
+  job_grade                String?
+  salary_budget            Decimal?             @db.Decimal(12, 2)
+  position_type            PositionType?        @default(NEW)
+  replacement_employee_ref String?
+  priority                 PriorityLevel?       @default(MEDIUM)
+  expected_impact          String?
+  required_qualifications  String?
+  remarks                  String?
+  recruitment_requests     RecruitmentRequest[]
+  department               Department           @relation(fields: [department_id], references: [id])
+  workforce_plan           WorkforcePlan        @relation(fields: [workforce_plan_id], references: [id], onDelete: Cascade)
+
+  @@map("workforce_plan_item")
+}
+
+model RecruitmentApprovalHistory {
+  id            String         @id @default(uuid())
+  entity_type   String
+  entity_id     String
+  action        ApprovalAction
+  actor_user_id String
+  comments      String?
+  created_at    DateTime       @default(now())
+  actor         User           @relation(fields: [actor_user_id], references: [id])
+
+  @@index([entity_type, entity_id])
+  @@map("recruitment_approval_history")
+}
+
+model RecruitmentRequest {
+  id                          String                    @id @default(uuid())
+  company_id                  Int
+  planning_type               RecruitmentClassification
+  workforce_plan_item_id      String?
+  requested_by_user_id        String
+  department_id               Int
+  job_title                   String
+  employment_type             EmploymentType
+  request_type                RecruitmentRequestType
+  is_replacement              Boolean                   @default(false)
+  replacement_for_employee_id String?
+  replacement_reason          String?
+  justification               String
+  required_qualifications     String?
+  expected_start_date         DateTime?
+  status                      RecruitmentRequestStatus  @default(DRAFT)
+  approved_by_user_id         String?
+  hr_comments                 String?
+  created_at                  DateTime                  @default(now())
+  updated_at                  DateTime                  @updatedAt
+  headcount                   Int                       @default(1)
+  position_name               String
+  priority                    PriorityLevel             @default(MEDIUM)
+  request_number              String?                   @unique
+  job_grade                   String?
+  approved_by                 User?                     @relation("ApprovedRequests", fields: [approved_by_user_id], references: [id])
+  company                     Company                   @relation(fields: [company_id], references: [id])
+  department                  Department                @relation(fields: [department_id], references: [id])
+  requested_by                User                      @relation("RequestedRequests", fields: [requested_by_user_id], references: [id])
+  workforce_plan_item         WorkforcePlanItem?        @relation(fields: [workforce_plan_item_id], references: [id])
+  vacancy                     Vacancy?
+
+  @@map("recruitment_request")
+}
+
+model JobTemplate {
+  id                 String              @id @default(uuid())
+  company_id         Int
+  title              String
+  employment_type    EmploymentType
+  job_grade          String?
+  summary            String?
+  responsibilities   String
+  requirements       String
+  is_active          Boolean             @default(true)
+  created_at         DateTime            @default(now())
+  updated_at         DateTime            @updatedAt
+  job_descriptions   JobDescription[]
+  company            Company             @relation(fields: [company_id], references: [id], onDelete: Cascade)
+  screening_criteria ScreeningCriteria[]
+
+  @@map("job_template")
+}
+
+model JobDescription {
+  id               String          @id @default(uuid())
+  company_id       Int
+  job_template_id  String?
+  title            String
+  summary          String?
+  responsibilities String
+  requirements     String
+  qualifications   String?
+  benefits         String?
+  employment_terms String?
+  skills           String[]
+  experience_required String?
+  employment_type  EmploymentType?
+  job_grade        String?
+  version          Int             @default(1)
+  is_active        Boolean         @default(true)
+  created_at       DateTime        @default(now())
+  updated_at       DateTime        @updatedAt
+  company          Company         @relation(fields: [company_id], references: [id], onDelete: Cascade)
+  job_template     JobTemplate?    @relation(fields: [job_template_id], references: [id])
+  vacancies        Vacancy[]
+
+  @@map("job_description")
+}
+
+model Vacancy {
+  id                      String                 @id @default(uuid())
+  company_id              Int
+  recruitment_request_id  String                 @unique
+  job_description_id      String?
+  title                   String
+  department_id           Int
+  location                String
+  application_type        ApplicationType        @default(EXTERNAL)
+  employment_type         EmploymentType
+  status                  VacancyStatus          @default(DRAFT)
+  previous_status         VacancyStatus?
+  open_positions          Int                    @default(1)
+  description             String
+  responsibilities        String
+  requirements            String
+  required_qualifications String?
+  required_experience     Int?
+  created_at              DateTime               @default(now())
+  updated_at              DateTime               @updatedAt
+  posted_at               DateTime?
+  posting_status          PostingStatus          @default(PENDING)
+  vacancy_number          String?                @unique
+  opening_date            DateTime?
+  closing_date            DateTime?
+  stage_timeline          Json?
+  job_grade               String?
+  business_unit           String?
+  approved_at             DateTime?
+  closed_at               DateTime?
+  filled_at               DateTime?
+  applications            Application[]
+  hiring_minute           HiringMinute?
+  screening_criteria      ScreeningCriteria[]
+  screening_logs          ScreeningLog[]
+  shortlisted_candidates  ShortlistedCandidate[]
+  company                 Company                @relation(fields: [company_id], references: [id])
+  department              Department             @relation(fields: [department_id], references: [id])
+  job_description         JobDescription?        @relation(fields: [job_description_id], references: [id])
+  recruitment_request     RecruitmentRequest     @relation(fields: [recruitment_request_id], references: [id])
+  vacancy_job_postings    VacancyJobPosting[]
+
+  @@map("vacancy")
+}
+
+model Candidate {
+  id                     String                   @id @default(uuid())
+  company_id             Int
+  first_name             String
+  last_name              String
+  email                  String                   @unique
+  phone                  String?
+  password_hash          String
+  created_at             DateTime                 @default(now())
+  updated_at             DateTime                 @updatedAt
+  is_email_verified      Boolean                  @default(false)
+  terms_accepted         Boolean                  @default(false)
+  google_id              String?
+  gender                 Gender?
+  date_of_birth          DateTime?
+  nationality            String?
+  current_address        String?
+  years_of_experience    Int?
+  current_employer       String?
+  current_position       String?
+  skills                 String[]                 @default([])
+  languages              String[]                 @default([])
+  portfolio_url          String?
+  preferred_job_category String?
+  preferred_location     String?
+  expected_salary        Decimal?                 @db.Decimal(12, 2)
+  availability_status    AvailabilityStatus       @default(IMMEDIATELY)
+  remarks                String?
+  addresses              Address[]
+  applications           Application[]
+  company                Company                  @relation(fields: [company_id], references: [id])
+  certifications         CandidateCertification[]
+  candidate_document     CandidateDocument?
+  educations             Education[]
+  experiences            Experience[]
+  alternative_minutes    HiringMinute[]           @relation("AlternativeCandidateHM")
+  selected_minutes       HiringMinute[]           @relation("SelectedCandidateHM")
+  notifications          Notification[]
+  offers                 Offer[]
+  phones                 Phone[]
+  screening_logs         ScreeningLog[]
+  shortlisted_candidates ShortlistedCandidate[]
+  talent_rosters         TalentRoster[]
+
+  @@map("candidate")
+}
+
+model Application {
+  id                    String                    @id @default(uuid())
+  company_id            Int
+  candidate_id          String
+  vacancy_id            String
+  cover_letter_url      String?
+  cover_letter_text     String?
+  expected_salary       Decimal?                  @db.Decimal(12, 2)
+  status                ApplicationStatus         @default(SUBMITTED)
+  current_stage         ApplicationStage          @default(SCREENING)
+  submitted_at          DateTime                  @default(now())
+  updated_at            DateTime                  @updatedAt
+  recruitment_source_id String?
+  rejection_reason      String?
+  sourced_from_roster   Boolean                   @default(false)
+  candidate             Candidate                 @relation(fields: [candidate_id], references: [id])
+  company               Company                   @relation(fields: [company_id], references: [id])
+  recruitment_source    RecruitmentSource?        @relation(fields: [recruitment_source_id], references: [id])
+  vacancy               Vacancy                   @relation(fields: [vacancy_id], references: [id])
+  stage_histories       ApplicationStageHistory[]
+  interviews            Interview[]
+  offers                Offer[]
+
+  @@map("application")
+}
+
+model ApplicationStageHistory {
+  id             String            @id @default(uuid())
+  application_id String
+  from_stage     ApplicationStage?
+  to_stage       ApplicationStage
+  changed_at     DateTime          @default(now())
+  changed_by_id  String?
+  notes          String?
+  application    Application       @relation(fields: [application_id], references: [id], onDelete: Cascade)
+
+  @@map("application_stage_history")
+}
+
+model CandidateDocument {
+  id           String    @id @default(uuid())
+  candidate_id String    @unique
+  company_id   Int
+  cv           String[]  @default([])
+  photo        String[]  @default([])
+  id_documents String[]  @default([])
+  candidate    Candidate @relation(fields: [candidate_id], references: [id], onDelete: Cascade)
+  company      Company   @relation(fields: [company_id], references: [id])
+
+  @@unique([candidate_id, company_id])
+  @@map("candidate_document")
+}
+
+model CandidateCertification {
+  id                   String    @id @default(uuid())
+  candidate_id         String
+  name                 String    @db.VarChar(150)
+  issuing_organization String?   @db.VarChar(150)
+  issue_date           DateTime? @db.Date
+  expiration_date      DateTime? @db.Date
+  credential_id        String?   @db.VarChar(100)
+  credential_url       String?   @db.VarChar(255)
+  document_urls        String[]  @default([])
+  created_at           DateTime? @default(now())
+  updated_at           DateTime? @default(now()) @updatedAt
+  candidate            Candidate @relation(fields: [candidate_id], references: [id], onDelete: Cascade)
+
+  @@map("candidate_certification")
+}
+
+model ScreeningLog {
+  id                      String          @id @default(uuid())
+  vacancy_id              String
+  candidate_id            String
+  status                  ScreeningStatus
+  reason                  String?
+  scores_json             Json?
+  screening_criteria_json Json?
+  screened_by_user_id     String?
+  screened_at             DateTime        @default(now())
+  updated_at              DateTime        @updatedAt
+  candidate               Candidate       @relation(fields: [candidate_id], references: [id], onDelete: Cascade)
+  screened_by             User?           @relation("ScreenedBy", fields: [screened_by_user_id], references: [id])
+  vacancy                 Vacancy         @relation(fields: [vacancy_id], references: [id], onDelete: Cascade)
+
+  @@map("screening_log")
+}
+
+model ScreeningCriteria {
+  id              String       @id @default(uuid())
+  company_id      Int
+  vacancy_id      String?
+  job_template_id String?
+  criteria_json   Json
+  is_active       Boolean      @default(true)
+  created_at      DateTime     @default(now())
+  updated_at      DateTime     @updatedAt
+  company         Company      @relation(fields: [company_id], references: [id], onDelete: Cascade)
+  job_template    JobTemplate? @relation(fields: [job_template_id], references: [id])
+  vacancy         Vacancy?     @relation(fields: [vacancy_id], references: [id], onDelete: Cascade)
+
+  @@map("screening_criteria")
+}
+
+model ShortlistedCandidate {
+  id                     String    @id @default(uuid())
+  vacancy_id             String
+  candidate_id           String
+  application_id         String?
+  shortlisted_by_user_id String?
+  shortlisted_at         DateTime  @default(now())
+  notes                  String?
+  candidate              Candidate @relation(fields: [candidate_id], references: [id], onDelete: Cascade)
+  shortlisted_by         User?     @relation("ShortlistedBy", fields: [shortlisted_by_user_id], references: [id])
+  vacancy                Vacancy   @relation(fields: [vacancy_id], references: [id], onDelete: Cascade)
+
+  @@unique([vacancy_id, candidate_id])
+  @@map("shortlisted_candidate")
+}
+
+model InterviewCategory {
+  id                             String                        @id @default(uuid())
+  company_id                     Int
+  name                           String
+  description                    String?
+  is_default                     Boolean                       @default(false)
+  is_active                      Boolean                       @default(true)
+  created_at                     DateTime                      @default(now())
+  updated_at                     DateTime                      @updatedAt
+  interviews                     Interview[]
+  company                        Company                       @relation(fields: [company_id], references: [id], onDelete: Cascade)
+  interview_evaluations          InterviewEvaluation[]
+  interview_evaluation_templates InterviewEvaluationTemplate[]
+  questions                      InterviewQuestion[]
+  question_banks                 InterviewQuestionBank[]
+
+  @@unique([company_id, name])
+  @@map("interview_category")
+}
+
+model Interview {
+  id                    String                @id @default(uuid())
+  application_id        String
+  interview_number      String?               @unique
+  round                 Int                   @default(1)
+  interview_category_id String
+  start_time            DateTime
+  end_time              DateTime
+  meeting_link          String?
+  status                InterviewStatus       @default(SCHEDULED)
+  mode                  InterviewMode?        @default(VIRTUAL)
+  google_maps_location  String?
+  office_location       String?
+  in_office_start_time  DateTime?
+  in_office_end_time    DateTime?
+  remote_start_time     DateTime?
+  remote_end_time       DateTime?
+  questions_json        Json?
+  rescheduled_reason    String?
+  created_at            DateTime              @default(now())
+  updated_at            DateTime              @updatedAt
+  application           Application           @relation(fields: [application_id], references: [id], onDelete: Cascade)
+  interview_category    InterviewCategory     @relation(fields: [interview_category_id], references: [id])
+  interview_evaluations InterviewEvaluation[]
+  interview_panels      InterviewPanel[]
+
+  @@map("interview")
+}
+
+model InterviewPanel {
+  id              String    @id @default(uuid())
+  interview_id    String
+  panel_member_id String
+  interview       Interview @relation(fields: [interview_id], references: [id], onDelete: Cascade)
+  user            User      @relation(fields: [panel_member_id], references: [id])
+
+  @@unique([interview_id, panel_member_id])
+  @@map("interview_panel")
+}
+
+model InterviewEvaluation {
+  id                     String                       @id @default(uuid())
+  interview_id           String
+  evaluator_id           String
+  interview_category_id  String?
+  overall_score          Int
+  comments               String?
+  questions_json         Json?
+  recommendation         EvaluationRecommendation?
+  evaluation_template_id String?
+  scores_json            Json?
+  created_at             DateTime                     @default(now())
+  updated_at             DateTime                     @updatedAt
+  evaluation_template    InterviewEvaluationTemplate? @relation(fields: [evaluation_template_id], references: [id])
+  user                   User                         @relation(fields: [evaluator_id], references: [id])
+  interview_category     InterviewCategory?           @relation(fields: [interview_category_id], references: [id])
+  interview              Interview                    @relation(fields: [interview_id], references: [id], onDelete: Cascade)
+
+  @@map("interview_evaluation")
+}
+
+model InterviewEvaluationTemplate {
+  id                    String                @id @default(uuid())
+  company_id            Int
+  interview_category_id String?
+  name                  String
+  is_active             Boolean               @default(true)
+  created_at            DateTime              @default(now())
+  updated_at            DateTime              @updatedAt
+  criteria              EvaluationCriteria[]
+  evaluations           InterviewEvaluation[]
+  company               Company               @relation(fields: [company_id], references: [id], onDelete: Cascade)
+  interview_category    InterviewCategory?    @relation(fields: [interview_category_id], references: [id])
+
+  @@unique([company_id, name])
+  @@map("interview_evaluation_template")
+}
+
+model EvaluationCriteria {
+  id          String                      @id @default(uuid())
+  template_id String
+  name        String
+  weight      Decimal                     @db.Decimal(5, 2)
+  max_score   Int                         @default(10)
+  order       Int
+  template    InterviewEvaluationTemplate @relation(fields: [template_id], references: [id], onDelete: Cascade)
+
+  @@map("evaluation_criteria")
+}
+
+model InterviewQuestionBank {
+  id                    String              @id @default(uuid())
+  company_id            Int
+  title                 String
+  job_grade             String?
+  interview_category_id String?
+  employment_type       EmploymentType?
+  description           String?
+  is_active             Boolean             @default(true)
+  created_at            DateTime            @default(now())
+  updated_at            DateTime            @updatedAt
+  questions             InterviewQuestion[]
+  interview_category    InterviewCategory?  @relation(fields: [interview_category_id], references: [id])
+
+  @@map("interview_question_bank")
+}
+
+model InterviewQuestion {
+  id                    String                @id @default(uuid())
+  bank_id               String
+  question              String
+  interview_category_id String?
+  difficulty            String?
+  is_active             Boolean               @default(true)
+  created_at            DateTime              @default(now())
+  updated_at            DateTime              @updatedAt
+  bank                  InterviewQuestionBank @relation(fields: [bank_id], references: [id], onDelete: Cascade)
+  interview_category    InterviewCategory?    @relation(fields: [interview_category_id], references: [id])
+
+  @@map("interview_question")
+}
+
+model Offer {
+  id                 String      @id @default(uuid())
+  company_id         Int
+  application_id     String
+  candidate_id       String
+  created_by_user_id String
+  salary             Decimal     @db.Decimal(12, 2)
+  start_date         DateTime
+  expiry_date        DateTime
+  status             OfferStatus @default(SENT)
+  offer_notes        String?
+  offer_letter_url   String?
+  declined_reason    String?
+  accepted_at        DateTime?
+  rejected_at        DateTime?
+  created_at         DateTime    @default(now())
+  updated_at         DateTime    @updatedAt
+  application        Application @relation(fields: [application_id], references: [id], onDelete: Cascade)
+  candidate          Candidate   @relation(fields: [candidate_id], references: [id], onDelete: Cascade)
+  company            Company     @relation(fields: [company_id], references: [id])
+  user               User        @relation(fields: [created_by_user_id], references: [id], onDelete: Cascade)
+
+  @@map("offer")
+}
+
+model TalentRoster {
+  id                      String                   @id @default(uuid())
+  company_id              Int
+  candidate_id            String
+  talent_category         String
+  availability_status     AvailabilityStatus       @default(IMMEDIATELY)
+  status                  TalentRosterStatus       @default(ACTIVE)
+  source_stage            TalentRosterSourceStage?
+  sourced_from_vacancy_id String?
+  expected_salary         Decimal?                 @db.Decimal(12, 2)
+  recruitment_source_id   String?
+  notes                   String?
+  added_by                String
+  added_at                DateTime                 @default(now())
+  user                    User                     @relation(fields: [added_by], references: [id], onDelete: Cascade)
+  candidate               Candidate                @relation(fields: [candidate_id], references: [id], onDelete: Cascade)
+  company                 Company                  @relation(fields: [company_id], references: [id])
+  recruitment_source      RecruitmentSource?       @relation(fields: [recruitment_source_id], references: [id])
+
+  @@map("talent_roster")
+}
+
+model HiringMinute {
+  id                           String                           @id @default(uuid())
+  vacancy_id                   String                           @unique
+  prepared_by_id               String
+  preparation_date             DateTime                         @default(now())
+  recruitment_request_type     RecruitmentRequestType
+  recruitment_classification   RecruitmentClassification
+  application_type             ApplicationType
+  interview_date               DateTime?
+  interview_time               String?
+  interview_place              String?
+  advertisement_date           DateTime?
+  application_closing_date     DateTime?
+  total_applications           Int                              @default(0)
+  total_screened               Int                              @default(0)
+  total_shortlisted            Int                              @default(0)
+  total_interviewed            Int                              @default(0)
+  sources_used                 Json?
+  screening_criteria_used      Json?
+  interview_method             InterviewMode?
+  stages_conducted             Json?
+  candidate_evaluation_summary Json?
+  selected_candidate_id        String?
+  selected_candidate_score     Decimal?                         @db.Decimal(5, 2)
+  expected_joining_date        DateTime?
+  recommended_position         String?
+  expected_salary              Decimal?                         @db.Decimal(12, 2)
+  reason_for_selection         String?
+  alternative_candidate_id     String?
+  alternative_candidate_score  Decimal?                         @db.Decimal(5, 2)
+  reason_for_alternative       String?
+  rejected_candidates_json     Json?
+  panel_recommendation         HiringMinutePanelRecommendation?
+  recommendation_summary       String?
+  hr_observation               String?
+  final_decision               HiringMinuteFinalDecision        @default(PENDING)
+  decision_remarks             String?
+  approved_at                  DateTime?
+  approved_by_id               String?
+  created_at                   DateTime                         @default(now())
+  updated_at                   DateTime                         @updatedAt
+  alternative_candidate        Candidate?                       @relation("AlternativeCandidateHM", fields: [alternative_candidate_id], references: [id])
+  approved_by                  User?                            @relation("ApprovedMinutes", fields: [approved_by_id], references: [id])
+  prepared_by                  User                             @relation("PreparedMinutes", fields: [prepared_by_id], references: [id])
+  selected_candidate           Candidate?                       @relation("SelectedCandidateHM", fields: [selected_candidate_id], references: [id])
+  vacancy                      Vacancy                          @relation(fields: [vacancy_id], references: [id], onDelete: Cascade)
+  panel_members                HiringMinutePanel[]
+  signatories                  HiringMinuteSignatory[]
+
+  @@map("hiring_minute")
+}
+
+model HiringMinutePanel {
+  id               String       @id @default(uuid())
+  hiring_minute_id String
+  user_id          String?
+  member_name      String
+  position_role    String?
+  department       String?
+  signature_url    String?
+  hiring_minute    HiringMinute @relation(fields: [hiring_minute_id], references: [id], onDelete: Cascade)
+
+  @@map("hiring_minute_panel")
+}
+
+model HiringMinuteSignatory {
+  id               String                    @id @default(uuid())
+  hiring_minute_id String
+  role             HiringMinuteSignatoryRole
+  user_id          String?
+  signatory_name   String?
+  position         String?
+  signed_at        DateTime?
+  signature_url    String?
+  hiring_minute    HiringMinute              @relation(fields: [hiring_minute_id], references: [id], onDelete: Cascade)
+
+  @@unique([hiring_minute_id, role])
+  @@map("hiring_minute_signatory")
+}
+
+model SubscriptionPlan {
+  id                    String                    @id @default(uuid())
+  name                  String
+  slug                  String                    @unique
+  price                 Decimal                   @db.Decimal(10, 2)
+  billing_cycle         SubscriptionBillingCycle
+  max_users             Int
+  max_vacancies         Int
+  is_active             Boolean                   @default(true)
+  company_subscriptions CompanySubscription[]
+  features              SubscriptionPlanFeature[]
+
+  @@map("subscription_plan")
+}
+
+model CompanySubscription {
+  id                   String             @id
+  company_id           Int
+  subscription_plan_id String
+  status               SubscriptionStatus
+  start_date           DateTime
+  end_date             DateTime
+  company              Company            @relation(fields: [company_id], references: [id])
+  subscription_plan    SubscriptionPlan   @relation(fields: [subscription_plan_id], references: [id])
+
+  @@map("company_subscription")
+}
+
+model SubscriptionPlanFeature {
+  id          String           @id @default(uuid())
+  plan_id     String
+  feature_key String
+  is_enabled  Boolean          @default(true)
+  plan        SubscriptionPlan @relation(fields: [plan_id], references: [id], onDelete: Cascade)
+
+  @@unique([plan_id, feature_key])
+  @@map("subscription_plan_feature")
+}
+
+model ActivityLog {
+  id          String   @id @default(uuid())
+  company_id  Int
+  user_id     String?
+  action      String
+  entity_type String
+  entity_id   String
+  changes     Json?
+  description String?
+  ip_address  String?
+  user_agent  String?
+  created_at  DateTime @default(now())
+
+  @@index([entity_type, entity_id])
+  @@index([company_id, created_at])
+  @@map("activity_log")
+}
+
+model VersionHistory {
+  id                 String   @id @default(uuid())
+  entity_id          String
+  entity_type        String
+  version_number     Int
+  created_at         DateTime @default(now())
+  changed_by_user_id String?
+  changes            Json
+
+  @@map("version_history")
+}
+
+model CustomField {
+  id                  String             @id @default(uuid())
+  company_id          Int
+  entity_type         String
+  field_name          String
+  field_type          String
+  is_required         Boolean            @default(false)
+  options             String?
+  company             Company            @relation(fields: [company_id], references: [id])
+  custom_field_values CustomFieldValue[]
+
+  @@map("custom_field")
+}
+
+model CustomFieldValue {
+  id              String      @id @default(uuid())
+  custom_field_id String
+  entity_id       String
+  value           String
+  custom_field    CustomField @relation(fields: [custom_field_id], references: [id], onDelete: Cascade)
+
+  @@map("custom_field_value")
+}
+
+model Experience {
+  id           String    @id @default(uuid())
+  candidate_id String
+  company_name String
+  job_title    String
+  start_date   DateTime
+  end_date     DateTime?
+  description  String?
+  document_url String?
+  total_months Int?
+  created_at   DateTime  @default(now())
+  updated_at   DateTime  @updatedAt
+  candidate    Candidate @relation(fields: [candidate_id], references: [id], onDelete: Cascade)
+
+  @@index([candidate_id])
+  @@map("experience")
+}
+
+model Education {
+  id               String       @id @default(uuid())
+  candidate_id     String
+  institution_id   Int?
+  institution_name String?
+  degree           DegreeLevel
+  field_of_study   String
+  graduation_year  Int
+  certificate_url  String?
+  created_at       DateTime     @default(now())
+  updated_at       DateTime     @updatedAt
+  candidate        Candidate    @relation(fields: [candidate_id], references: [id], onDelete: Cascade)
+  institution      Institution? @relation(fields: [institution_id], references: [id])
+
+  @@index([candidate_id])
+  @@map("education")
+}
+
+model Institution {
+  id         Int                 @id @default(autoincrement())
+  name       String              @unique
+  category   InstitutionCategory
+  educations Education[]
+
+  @@map("institution")
+}
+
+model Address {
+  id           String     @id @default(uuid())
+  company_id   Int?
+  user_id      String?
+  candidate_id String?
+  region       String?
+  city         String?
+  sub_city     String?
+  woreda       String?
+  candidate    Candidate? @relation(fields: [candidate_id], references: [id], onDelete: Cascade)
+  company      Company?   @relation(fields: [company_id], references: [id], onDelete: Restrict)
+  user         User?      @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@map("address")
+}
+
+model Phone {
+  id           String     @id @default(uuid())
+  company_id   Int?
+  user_id      String?
+  candidate_id String?
+  phone_number String
+  phone_type   PhoneType? @default(PRIVATE)
+  is_primary   Boolean?   @default(false)
+  candidate    Candidate? @relation(fields: [candidate_id], references: [id], onDelete: Cascade)
+  company      Company?   @relation(fields: [company_id], references: [id], onDelete: Restrict)
+  user         User?      @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@map("phone")
+}
+
+model RecruitmentChannel {
+  id             String              @id @default(uuid())
+  company_id     Int
+  name           String
+  description    String?
+  is_automated   Boolean             @default(false)
+  api_url        String?
+  api_username   String?
+  api_password   String?
+  api_token      String?
+  is_active      Boolean             @default(true)
+  share_template String?
+  created_at     DateTime            @default(now())
+  updated_at     DateTime            @updatedAt
+  company        Company             @relation(fields: [company_id], references: [id], onDelete: Cascade)
+  job_postings   VacancyJobPosting[]
+
+  @@map("recruitment_channel")
+}
+
+model VacancyJobPosting {
+  id                     String             @id @default(uuid())
+  company_id             Int
+  vacancy_id             String
+  recruitment_channel_id String
+  posting_status         PostingStatus      @default(PENDING)
+  posted_at              DateTime?          @default(now())
+  external_job_id        String?
+  external_job_url       String?
+  error_log              String?
+  created_at             DateTime           @default(now())
+  updated_at             DateTime           @updatedAt
+  company                Company            @relation(fields: [company_id], references: [id], onDelete: Cascade)
+  recruitment_channel    RecruitmentChannel @relation(fields: [recruitment_channel_id], references: [id], onDelete: Cascade)
+  vacancy                Vacancy            @relation(fields: [vacancy_id], references: [id], onDelete: Cascade)
+
+  @@map("vacancy_job_posting")
+}
+
+model RecruitmentSource {
+  id             String         @id @default(uuid())
+  company_id     Int
+  name           String
+  description    String?
+  is_active      Boolean        @default(true)
+  created_at     DateTime       @default(now())
+  updated_at     DateTime       @updatedAt
+  applications   Application[]
+  company        Company        @relation(fields: [company_id], references: [id], onDelete: Cascade)
+  talent_rosters TalentRoster[]
+
+  @@unique([company_id, name])
+  @@map("recruitment_source")
+}
+
+enum WorkforcePlanStatus {
+  DRAFT
+  SUBMITTED
+  UNDER_HR_REVIEW
+  UNDER_CEO_REVIEW
+  APPROVED
+  REJECTED
+  RETURNED_FOR_REVISION
+  CLOSED
+}
+
+enum RecruitmentRequestStatus {
+  DRAFT
+  SUBMITTED
+  UNDER_REVIEW
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum RecruitmentRequestType {
+  NEW_HEADCOUNT
+  REPLACEMENT
+}
+
+enum RecruitmentClassification {
+  PLANNED
+  UNPLANNED
+}
+
+enum PlanningPeriod {
+  ANNUAL
+  QUARTERLY
+  SEMI_ANNUAL
+  MONTHLY
+}
+
+enum PlanningQuarter {
+  Q1
+  Q2
+  Q3
+  Q4
+}
+
+enum PriorityLevel {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum PositionType {
+  NEW
+  REPLACEMENT
+}
+
+enum EmploymentType {
+  FULL_TIME
+  PART_TIME
+  CONTRACT
+  INTERNSHIP
+  TEMPORARY
+  CONSULTANT
+}
+
+enum VacancyStatus {
+  DRAFT
+  OPEN
+  PUBLISHED
+  IN_PROGRESS
+  ON_HOLD
+  CLOSED
+  CANCELLED
+}
+
+enum PostingStatus {
+  DRAFT
+  PENDING
+  PUBLISHED
+  SUSPENDED
+  WITHDRAWN
+}
+
+enum ApplicationStatus {
+  SUBMITTED
+  UNDER_SCREENING
+  SHORTLISTED
+  INTERVIEW_SCHEDULED
+  INTERVIEW_COMPLETED
+  UNDER_EVALUATION
+  SELECTED
+  OFFER_ISSUED
+  OFFER_ACCEPTED
+  OFFER_DECLINED
+  REJECTED
+  MOVED_TO_TALENT_ROSTER
+}
+
+enum ApplicationStage {
+  SCREENING
+  SHORTLISTING
+  INTERVIEW
+  EVALUATION
+  OFFER
+  ONBOARDING
+  CLOSED
+}
+
+enum DegreeLevel {
+  HIGH_SCHOOL
+  CERTIFICATE
+  DIPLOMA
+  ASSOCIATE
+  BACHELOR
+  MASTER
+  DOCTORATE
+}
+
+enum ApplicationType {
+  INTERNAL
+  EXTERNAL
+  BOTH
+}
+
+enum ScreeningStatus {
+  QUALIFIED
+  PARTIALLY_QUALIFIED
+  NOT_QUALIFIED
+  HOLD_FOR_REVIEW
+}
+
+enum InterviewStatus {
+  SCHEDULED
+  RESCHEDULED
+  COMPLETED
+  CANCELLED
+  EVALUATION_PENDING
+  FINALIZED
+}
+
+enum InterviewMode {
+  PHYSICAL
+  VIRTUAL
+  HYBRID
+}
+
+enum EvaluationRecommendation {
+  STRONGLY_RECOMMEND
+  RECOMMEND
+  HOLD
+  DO_NOT_RECOMMEND
+}
+
+enum OfferStatus {
+  SENT
+  ACCEPTED
+  DECLINED
+  WITHDRAWN
+  EXPIRED
+}
+
+enum AvailabilityStatus {
+  IMMEDIATELY
+  TWO_WEEKS
+  ONE_MONTH
+  MORE_THAN_ONE_MONTH
+}
+
+enum TalentRosterSourceStage {
+  SCREENING
+  INTERVIEW
+  FINAL_SELECTION
+}
+
+enum TalentRosterStatus {
+  ACTIVE
+  PLACED
+  INACTIVE
+  WITHDRAWN
+}
+
+enum HiringMinutePanelRecommendation {
+  STRONGLY_RECOMMEND_HIRING
+  RECOMMEND_HIRING
+  HOLD_FOR_FURTHER_EVALUATION
+  DO_NOT_RECOMMEND_HIRING
+}
+
+enum HiringMinuteFinalDecision {
+  PENDING
+  APPROVED
+  REJECTED
+  RETURNED_FOR_FURTHER_REVIEW
+}
+
+enum NotificationType {
+  RECRUITMENT_REQUEST_SUBMITTED
+  RECRUITMENT_REQUEST_APPROVED
+  RECRUITMENT_REQUEST_REJECTED
+  VACANCY_CREATED
+  JOB_POSTED
+  APPLICATION_RECEIVED
+  APPLICATION_SHORTLISTED
+  APPLICATION_REJECTED
+  INTERVIEW_SCHEDULED
+  INTERVIEW_RESCHEDULED
+  CANDIDATE_SELECTED
+  CANDIDATE_REJECTED
+  OFFER_ISSUED
+  OFFER_ACCEPTED
+  OFFER_DECLINED
+  TALENT_ROSTER_ADDED
+  WORKFORCE_PLAN_SUBMITTED
+  WORKFORCE_PLAN_APPROVED
+  WORKFORCE_PLAN_REJECTED
+  GENERAL
+}
+
+enum SubscriptionBillingCycle {
+  MONTHLY
+  QUARTERLY
+  ANNUALLY
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  INACTIVE
+  EXPIRED
+  CANCELLED
+  TRIAL
+}
+
+enum PhoneType {
+  PRIVATE
+  WORK
+  EMERGENCY
+  OTHER
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+  PREFER_NOT_TO_SAY
+}
+
+enum InstitutionCategory {
+  Government
+  Private
+}
+
+enum ApprovalAction {
+  SUBMITTED
+  APPROVED
+  REJECTED
+  RETURNED_FOR_REVISION
+  REVIEWED
+  FORWARDED
+}
+
+enum HiringMinuteSignatoryRole {
+  HR_REPRESENTATIVE
+  HIRING_MANAGER
+  DEPARTMENT_HEAD
+  CEO
+}

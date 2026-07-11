@@ -1,0 +1,60 @@
+# Dependencies
+node_modules
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Build outputs
+dist/
+/build
+/generated/prisma
+tsconfig.tsbuildinfo
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Runtime data
+/uploads
+/tmp
+*.pid
+*.pid.lock
+
+# IDE and editor files
+.vscode/
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+*.iml
+.code-workspace
+
+# OS files
+Thumbs.db
+.Thumbs.db
+
+# Prisma
+.env.test
+prisma/.env*
+
+# Cache
+.cache
+.eslintcache
+
+# Testing
+coverage
+.nyc_output
