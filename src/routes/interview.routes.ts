@@ -3,10 +3,12 @@ import {
   updateStatus,
   schedule,
   getOrgInterviews,
+  getVacancyInterviews,
   getInterviewById,
   createInterview,
   updateInterview,
   cancelInterview,
+  markInterviewCompleted,
   getEvaluations,
   getQuestionBank,
   generateQuestions,
@@ -36,6 +38,18 @@ router.get(
     PERMISSIONS.MY_EVALUATION_READ,
   ]),
   getOrgInterviews,
+);
+router.get(
+  '/vacancy/:vacancy_id',
+  authorize([
+    PERMISSIONS.VIEW_INTERVIEWS,
+    PERMISSIONS.INTERVIEW_READ,
+    PERMISSIONS.INTERVIEW_CREATE,
+    PERMISSIONS.INTERVIEW_EVALUATE,
+    PERMISSIONS.MY_INTERVIEW_READ,
+    PERMISSIONS.MY_EVALUATION_READ,
+  ]),
+  getVacancyInterviews,
 );
 router.get(
   '/question-bank',
@@ -83,6 +97,11 @@ router.post(
   '/:interview_id/cancel',
   authorize(PERMISSIONS.CANCEL_INTERVIEW),
   cancelInterview,
+);
+router.post(
+  '/:interview_id/complete',
+  authorize(PERMISSIONS.INTERVIEW_EVALUATE),
+  markInterviewCompleted,
 );
 router.get(
   '/:interview_id/evaluations',

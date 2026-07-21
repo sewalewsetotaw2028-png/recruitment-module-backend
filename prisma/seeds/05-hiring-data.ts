@@ -1,9 +1,5 @@
 import 'dotenv/config';
-import {
-  Prisma,
-  ApplicationStatus,
-  ApplicationStage,
-} from '@prisma/client';
+import { Prisma, ApplicationStatus, ApplicationStage } from '@prisma/client';
 import prisma from '../../src/config/database';
 
 async function main() {
@@ -20,10 +16,13 @@ async function main() {
     const users = await prisma.user.findMany({
       where: { company_id: company.id },
     });
-    const userMap: Record<string, any> = users.reduce((map: Record<string, any>, user: any) => {
-      map[user.email] = user;
-      return map;
-    }, {});
+    const userMap: Record<string, any> = users.reduce(
+      (map: Record<string, any>, user: any) => {
+        map[user.email] = user;
+        return map;
+      },
+      {},
+    );
 
     // Get candidates
     const candidates = await prisma.candidate.findMany({
@@ -41,22 +40,42 @@ async function main() {
     const departments = await prisma.department.findMany({
       where: { company_id: company.id },
     });
-    const departmentMap: Record<string, any> = departments.reduce((map: Record<string, any>, dept: any) => {
-      map[dept.name] = dept;
-      return map;
-    }, {});
+    const departmentMap: Record<string, any> = departments.reduce(
+      (map: Record<string, any>, dept: any) => {
+        map[dept.name] = dept;
+        return map;
+      },
+      {},
+    );
 
     // Get interview categories and evaluation templates
     const catTech = await prisma.interviewCategory.findUnique({
-      where: { company_id_name: { company_id: company.id, name: 'Technical Interview' } },
+      where: {
+        company_id_name: {
+          company_id: company.id,
+          name: 'Technical Interview',
+        },
+      },
     });
-    const techEvalTemplate = await prisma.interviewEvaluationTemplate.findFirst({
-      where: { company_id: company.id, name: 'Technical Interview Template' },
-    });
+    const techEvalTemplate = await prisma.interviewEvaluationTemplate.findFirst(
+      {
+        where: { company_id: company.id, name: 'Technical Interview Template' },
+      },
+    );
 
     // Helper to backing recruitment request
-    const makeBackingRR = async (deptName: string, jobTitle: string, idx: number) => {
+    const makeBackingRR = async (
+      deptName: string,
+      jobTitle: string,
+      idx: number,
+    ) => {
       if (!company) throw new Error('Company not found');
+      const reqNumber = `REQ-VAC-2026-${String(idx).padStart(3, '0')}`;
+      const existing = await prisma.recruitmentRequest.findUnique({
+        where: { request_number: reqNumber },
+      });
+      if (existing) return existing;
+
       return await prisma.recruitmentRequest.create({
         data: {
           company_id: company.id,
@@ -70,7 +89,7 @@ async function main() {
           justification: 'Backing vacancy for seed data.',
           status: 'APPROVED',
           priority: 'HIGH',
-          request_number: `REQ-VAC-2026-${String(idx).padStart(3, '0')}`,
+          request_number: reqNumber,
           approved_by_user_id: userMap['ceo1@erms.com'].id,
         },
       });
@@ -257,7 +276,6 @@ async function main() {
       create: {
         id: 'hm-approved-001',
         vacancy_id: seededVacancies[10].id,
-        selected_application_id: hmApprovedApp.id,
         prepared_by_id: userMap['hr1@erms.com'].id,
         recruitment_request_type: 'NEW_HEADCOUNT',
         recruitment_classification: 'PLANNED',
@@ -266,29 +284,46 @@ async function main() {
         interview_time: '10:00 AM',
         interview_place: 'Adiu HQ, Board Room',
         advertisement_date: new Date(Date.now() - 45 * 24 * 60 * 60 * 1000),
-        application_closing_date: new Date(Date.now() - 20 * 24 * 60 * 60 * 1000),
+        application_closing_date: new Date(
+          Date.now() - 20 * 24 * 60 * 60 * 1000,
+        ),
         total_applications: 14,
         total_screened: 10,
         total_shortlisted: 5,
         total_interviewed: 4,
         sources_used: ['Company Website', 'LinkedIn', 'Telegram'],
         interview_method: 'PHYSICAL',
-        stages_conducted: ['HR Interview', 'Technical Interview', 'Final Interview'],
+        stages_conducted: [
+          'HR Interview',
+          'Technical Interview',
+          'Final Interview',
+        ],
         selected_candidate_id: seededCandidates[6].id,
         selected_candidate_score: new Prisma.Decimal(4.8),
         expected_joining_date: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
         expected_salary: new Prisma.Decimal(7000),
-        reason_for_selection: 'Scored highest in technical and behavioral rounds.',
-        alternative_application_id: hmApprovedAltApp.id,
+        reason_for_selection:
+          'Scored highest in technical and behavioral rounds.',
         alternative_candidate_id: seededCandidates[7].id,
         alternative_candidate_score: new Prisma.Decimal(4.1),
         reason_for_alternative: 'Strong backup — second highest score.',
         rejected_candidates_json: [
-          { application_id: hmApprovedRejectedApp1.id, candidate_id: seededCandidates[8].id, name: 'Fikre Mariam', rejection_reason: 'Below salary expectations.' },
-          { application_id: hmApprovedRejectedApp2.id, candidate_id: seededCandidates[9].id, name: 'Tsige Desta', rejection_reason: 'Less relevant experience.' },
+          {
+            application_id: hmApprovedRejectedApp1.id,
+            candidate_id: seededCandidates[8].id,
+            name: 'Fikre Mariam',
+            rejection_reason: 'Below salary expectations.',
+          },
+          {
+            application_id: hmApprovedRejectedApp2.id,
+            candidate_id: seededCandidates[9].id,
+            name: 'Tsige Desta',
+            rejection_reason: 'Less relevant experience.',
+          },
         ],
         panel_recommendation: 'STRONGLY_RECOMMEND_HIRING',
-        recommendation_summary: 'Panel unanimously recommends the selected candidate.',
+        recommendation_summary:
+          'Panel unanimously recommends the selected candidate.',
         hr_observation: 'All stages conducted professionally.',
         final_decision: 'APPROVED',
         approved_by_id: userMap['ceo1@erms.com'].id,
@@ -297,18 +332,64 @@ async function main() {
     });
     await prisma.hiringMinutePanel.createMany({
       data: [
-        { hiring_minute_id: hmApproved.id, user_id: userMap['hr1@erms.com'].id, member_name: 'Grace Girma', position_role: 'HR Specialist', department: 'Human Resources' },
-        { hiring_minute_id: hmApproved.id, user_id: userMap['hm1@erms.com'].id, member_name: 'Maya Mulugeta', position_role: 'Hiring Manager', department: 'Engineering' },
-        { hiring_minute_id: hmApproved.id, user_id: userMap['interviewer1@erms.com'].id, member_name: 'Sam Samuel', position_role: 'Technical Lead', department: 'Engineering' },
+        {
+          hiring_minute_id: hmApproved.id,
+          user_id: userMap['hr1@erms.com'].id,
+          member_name: 'Grace Girma',
+          position_role: 'HR Specialist',
+          department: 'Human Resources',
+        },
+        {
+          hiring_minute_id: hmApproved.id,
+          user_id: userMap['hm1@erms.com'].id,
+          member_name: 'Maya Mulugeta',
+          position_role: 'Hiring Manager',
+          department: 'Engineering',
+        },
+        {
+          hiring_minute_id: hmApproved.id,
+          user_id: userMap['interviewer1@erms.com'].id,
+          member_name: 'Sam Samuel',
+          position_role: 'Technical Lead',
+          department: 'Engineering',
+        },
       ],
       skipDuplicates: true,
     });
     await prisma.hiringMinuteSignatory.createMany({
       data: [
-        { hiring_minute_id: hmApproved.id, role: 'HR_REPRESENTATIVE', user_id: userMap['hr1@erms.com'].id, signatory_name: 'Grace Girma', position: 'HR Specialist', signed_at: new Date() },
-        { hiring_minute_id: hmApproved.id, role: 'HIRING_MANAGER', user_id: userMap['hm1@erms.com'].id, signatory_name: 'Maya Mulugeta', position: 'Hiring Manager', signed_at: new Date() },
-        { hiring_minute_id: hmApproved.id, role: 'DEPARTMENT_HEAD', user_id: userMap['dm1@erms.com'].id, signatory_name: 'Paul Petros', position: 'Dept Manager', signed_at: new Date() },
-        { hiring_minute_id: hmApproved.id, role: 'CEO', user_id: userMap['ceo1@erms.com'].id, signatory_name: 'Alice Admasu', position: 'CEO', signed_at: new Date() },
+        {
+          hiring_minute_id: hmApproved.id,
+          role: 'HR_REPRESENTATIVE',
+          user_id: userMap['hr1@erms.com'].id,
+          signatory_name: 'Grace Girma',
+          position: 'HR Specialist',
+          signed_at: new Date(),
+        },
+        {
+          hiring_minute_id: hmApproved.id,
+          role: 'HIRING_MANAGER',
+          user_id: userMap['hm1@erms.com'].id,
+          signatory_name: 'Maya Mulugeta',
+          position: 'Hiring Manager',
+          signed_at: new Date(),
+        },
+        {
+          hiring_minute_id: hmApproved.id,
+          role: 'DEPARTMENT_HEAD',
+          user_id: userMap['dm1@erms.com'].id,
+          signatory_name: 'Paul Petros',
+          position: 'Dept Manager',
+          signed_at: new Date(),
+        },
+        {
+          hiring_minute_id: hmApproved.id,
+          role: 'CEO',
+          user_id: userMap['ceo1@erms.com'].id,
+          signatory_name: 'Alice Admasu',
+          position: 'CEO',
+          signed_at: new Date(),
+        },
       ],
       skipDuplicates: true,
     });
@@ -340,7 +421,6 @@ async function main() {
       create: {
         id: 'hm-pending-001',
         vacancy_id: seededVacancies[6].id,
-        selected_application_id: hmPendingApp.id,
         prepared_by_id: userMap['hr2@erms.com'].id,
         recruitment_request_type: 'NEW_HEADCOUNT',
         recruitment_classification: 'PLANNED',
@@ -360,21 +440,48 @@ async function main() {
         expected_salary: new Prisma.Decimal(6800),
         reason_for_selection: 'Solid technical skills and good communication.',
         panel_recommendation: 'RECOMMEND_HIRING',
-        recommendation_summary: 'Panel recommends candidate pending CEO sign-off.',
+        recommendation_summary:
+          'Panel recommends candidate pending CEO sign-off.',
         final_decision: 'PENDING',
       },
     });
     await prisma.hiringMinutePanel.createMany({
       data: [
-        { hiring_minute_id: hmPending.id, user_id: userMap['hr2@erms.com'].id, member_name: 'Henry Hagos', position_role: 'HR Specialist', department: 'Human Resources' },
-        { hiring_minute_id: hmPending.id, user_id: userMap['hm2@erms.com'].id, member_name: 'Noah Negasi', position_role: 'Hiring Manager', department: 'Sales' },
+        {
+          hiring_minute_id: hmPending.id,
+          user_id: userMap['hr2@erms.com'].id,
+          member_name: 'Henry Hagos',
+          position_role: 'HR Specialist',
+          department: 'Human Resources',
+        },
+        {
+          hiring_minute_id: hmPending.id,
+          user_id: userMap['hm2@erms.com'].id,
+          member_name: 'Noah Negasi',
+          position_role: 'Hiring Manager',
+          department: 'Sales',
+        },
       ],
       skipDuplicates: true,
     });
     await prisma.hiringMinuteSignatory.createMany({
       data: [
-        { hiring_minute_id: hmPending.id, role: 'HR_REPRESENTATIVE', user_id: userMap['hr2@erms.com'].id, signatory_name: 'Henry Hagos', position: 'HR Specialist', signed_at: new Date() },
-        { hiring_minute_id: hmPending.id, role: 'HIRING_MANAGER', user_id: userMap['hm2@erms.com'].id, signatory_name: 'Noah Negasi', position: 'Hiring Manager', signed_at: new Date() },
+        {
+          hiring_minute_id: hmPending.id,
+          role: 'HR_REPRESENTATIVE',
+          user_id: userMap['hr2@erms.com'].id,
+          signatory_name: 'Henry Hagos',
+          position: 'HR Specialist',
+          signed_at: new Date(),
+        },
+        {
+          hiring_minute_id: hmPending.id,
+          role: 'HIRING_MANAGER',
+          user_id: userMap['hm2@erms.com'].id,
+          signatory_name: 'Noah Negasi',
+          position: 'Hiring Manager',
+          signed_at: new Date(),
+        },
       ],
       skipDuplicates: true,
     });
@@ -395,7 +502,6 @@ async function main() {
       create: {
         id: 'hm-rejected-001',
         vacancy_id: seededVacancies[7].id,
-        selected_application_id: hmRejectedApp.id,
         prepared_by_id: userMap['hr2@erms.com'].id,
         recruitment_request_type: 'REPLACEMENT',
         recruitment_classification: 'PLANNED',
@@ -409,12 +515,17 @@ async function main() {
         total_interviewed: 3,
         sources_used: ['LinkedIn', 'Telegram', 'Employee Referral'],
         interview_method: 'PHYSICAL',
-        stages_conducted: ['HR Interview', 'Technical Interview', 'Final Interview'],
+        stages_conducted: [
+          'HR Interview',
+          'Technical Interview',
+          'Final Interview',
+        ],
         selected_candidate_id: seededCandidates[7].id,
         selected_candidate_score: new Prisma.Decimal(3.5),
         reason_for_selection: 'Qualified but salary expectations too high.',
         panel_recommendation: 'DO_NOT_RECOMMEND_HIRING',
-        recommendation_summary: 'Panel does not recommend due to budget constraints.',
+        recommendation_summary:
+          'Panel does not recommend due to budget constraints.',
         final_decision: 'REJECTED',
         approved_by_id: userMap['ceo1@erms.com'].id,
         approved_at: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000),
@@ -423,8 +534,20 @@ async function main() {
     });
     await prisma.hiringMinutePanel.createMany({
       data: [
-        { hiring_minute_id: hmRejected.id, user_id: userMap['hr2@erms.com'].id, member_name: 'Henry Hagos', position_role: 'HR Specialist', department: 'Human Resources' },
-        { hiring_minute_id: hmRejected.id, user_id: userMap['interviewer2@erms.com'].id, member_name: 'Tina Tsegaye', position_role: 'Senior Developer', department: 'Engineering' },
+        {
+          hiring_minute_id: hmRejected.id,
+          user_id: userMap['hr2@erms.com'].id,
+          member_name: 'Henry Hagos',
+          position_role: 'HR Specialist',
+          department: 'Human Resources',
+        },
+        {
+          hiring_minute_id: hmRejected.id,
+          user_id: userMap['interviewer2@erms.com'].id,
+          member_name: 'Tina Tsegaye',
+          position_role: 'Senior Developer',
+          department: 'Engineering',
+        },
       ],
       skipDuplicates: true,
     });
@@ -437,14 +560,19 @@ async function main() {
         entity_id: hmRejected.id,
         action: 'REJECTED',
         actor_user_id: userMap['ceo1@erms.com'].id,
-        comments: 'Rejected due to budget constraints. Salary exceeds approved range.',
+        comments:
+          'Rejected due to budget constraints. Salary exceeds approved range.',
       },
     });
     console.log('✓ Hiring minute created (REJECTED)');
 
     // ── 3. Test Vacancy with Multiple Evaluated Candidates ───────────────────────
     if (catTech && techEvalTemplate) {
-      const testVacancyRR = await makeBackingRR('Engineering', 'Test Software Engineer', 999);
+      const testVacancyRR = await makeBackingRR(
+        'Engineering',
+        'Test Software Engineer',
+        999,
+      );
       const testVacancy = await prisma.vacancy.upsert({
         where: { id: 'vac-test-001' },
         update: {},
@@ -459,7 +587,8 @@ async function main() {
           status: 'IN_PROGRESS',
           posting_status: 'PUBLISHED',
           open_positions: 1,
-          description: 'Test vacancy for evaluation and selection flow testing.',
+          description:
+            'Test vacancy for evaluation and selection flow testing.',
           responsibilities: 'Test responsibilities.',
           requirements: 'Test requirements.',
           required_qualifications: 'BSc in Computer Science',
@@ -476,9 +605,27 @@ async function main() {
       const testCand2 = seededCandidates[1];
       const testCand3 = seededCandidates[2];
 
-      const testApp1 = await createApp(testCand1.id, testVacancy.id, 'INTERVIEW_COMPLETED', 'EVALUATION', 5);
-      const testApp2 = await createApp(testCand2.id, testVacancy.id, 'INTERVIEW_COMPLETED', 'EVALUATION', 5);
-      const testApp3 = await createApp(testCand3.id, testVacancy.id, 'INTERVIEW_COMPLETED', 'EVALUATION', 5);
+      const testApp1 = await createApp(
+        testCand1.id,
+        testVacancy.id,
+        'INTERVIEW_COMPLETED',
+        'EVALUATION',
+        5,
+      );
+      const testApp2 = await createApp(
+        testCand2.id,
+        testVacancy.id,
+        'INTERVIEW_COMPLETED',
+        'EVALUATION',
+        5,
+      );
+      const testApp3 = await createApp(
+        testCand3.id,
+        testVacancy.id,
+        'INTERVIEW_COMPLETED',
+        'EVALUATION',
+        5,
+      );
 
       // Test interview 1
       const testInt1 = await prisma.interview.upsert({
@@ -498,8 +645,14 @@ async function main() {
       });
       await prisma.interviewPanel.createMany({
         data: [
-          { interview_id: testInt1.id, panel_member_id: userMap['interviewer1@erms.com'].id },
-          { interview_id: testInt1.id, panel_member_id: userMap['interviewer2@erms.com'].id },
+          {
+            interview_id: testInt1.id,
+            panel_member_id: userMap['interviewer1@erms.com'].id,
+          },
+          {
+            interview_id: testInt1.id,
+            panel_member_id: userMap['interviewer2@erms.com'].id,
+          },
         ],
         skipDuplicates: true,
       });
@@ -512,7 +665,11 @@ async function main() {
             evaluation_template_id: techEvalTemplate.id,
             overall_score: 8.5,
             scores_json: [
-              { criteria_name: 'Technical Skills', score: 9, comments: 'Excellent' },
+              {
+                criteria_name: 'Technical Skills',
+                score: 9,
+                comments: 'Excellent',
+              },
               { criteria_name: 'Problem Solving', score: 8, comments: 'Good' },
               { criteria_name: 'Experience', score: 8, comments: 'Solid' },
             ],
@@ -526,7 +683,11 @@ async function main() {
             evaluation_template_id: techEvalTemplate.id,
             overall_score: 8.0,
             scores_json: [
-              { criteria_name: 'Technical Skills', score: 8, comments: 'Very good' },
+              {
+                criteria_name: 'Technical Skills',
+                score: 8,
+                comments: 'Very good',
+              },
               { criteria_name: 'Problem Solving', score: 8, comments: 'Good' },
               { criteria_name: 'Experience', score: 8, comments: 'Solid' },
             ],
@@ -555,8 +716,14 @@ async function main() {
       });
       await prisma.interviewPanel.createMany({
         data: [
-          { interview_id: testInt2.id, panel_member_id: userMap['interviewer1@erms.com'].id },
-          { interview_id: testInt2.id, panel_member_id: userMap['interviewer2@erms.com'].id },
+          {
+            interview_id: testInt2.id,
+            panel_member_id: userMap['interviewer1@erms.com'].id,
+          },
+          {
+            interview_id: testInt2.id,
+            panel_member_id: userMap['interviewer2@erms.com'].id,
+          },
         ],
         skipDuplicates: true,
       });
@@ -612,8 +779,14 @@ async function main() {
       });
       await prisma.interviewPanel.createMany({
         data: [
-          { interview_id: testInt3.id, panel_member_id: userMap['interviewer1@erms.com'].id },
-          { interview_id: testInt3.id, panel_member_id: userMap['interviewer2@erms.com'].id },
+          {
+            interview_id: testInt3.id,
+            panel_member_id: userMap['interviewer1@erms.com'].id,
+          },
+          {
+            interview_id: testInt3.id,
+            panel_member_id: userMap['interviewer2@erms.com'].id,
+          },
         ],
         skipDuplicates: true,
       });
@@ -650,7 +823,9 @@ async function main() {
         ],
         skipDuplicates: true,
       });
-      console.log('✓ Test vacancy created with 3 evaluated candidates for evaluation testing');
+      console.log(
+        '✓ Test vacancy created with 3 evaluated candidates for evaluation testing',
+      );
     }
 
     console.log('\n✅ Hiring data seeded successfully!');

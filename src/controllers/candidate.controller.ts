@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { CandidateService } from '../services/candidate.service';
 import { AuthRequest } from '../middlewares/authMiddleware';
 import { logger } from '../utils/logger';
+import prisma from '../config/database';
 import {
   applyVacancySchema,
   candidateLoginSchema,
@@ -131,7 +132,7 @@ export const apply = async (
     const company_id = Number(req.user!.company_id);
 
     // Handle file upload for cover letter
-    let coverLetterData: any = applyVacancySchema.parse(req.body);
+    let coverLetterData = applyVacancySchema.parse(req.body);
 
     if (req.file && req.file.fieldname === 'cover_letter_file') {
       // Upload file and get URL
@@ -139,23 +140,13 @@ export const apply = async (
         await import('../services/cloudinary.service');
       const uploadedUrl = await CloudinaryService.uploadFile(
         req.file.buffer,
-        req.file.originalname,
         'cover-letters',
-        'raw'
+        String(company_id),
       );
       coverLetterData = {
         ...coverLetterData,
-        cover_letter_url: uploadedUrl,
-        cover_letter_text: undefined,
+        cover_letter: uploadedUrl,
       };
-    } else if (coverLetterData.cover_letter) {
-      // Text cover letter
-      coverLetterData = {
-        ...coverLetterData,
-        cover_letter_text: coverLetterData.cover_letter,
-        cover_letter_url: undefined,
-      };
-      delete coverLetterData.cover_letter;
     }
 
     const application = await CandidateService.submitApplication(
@@ -241,13 +232,29 @@ export const getProfile = async (
   }
 };
 
+export const getCandidateById = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction,
+) => {
+  try {
+    const candidate_id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const company_id = Number(req.user!.company_id);
+    
+    const profile = await CandidateService.getCandidateById(candidate_id, company_id);
+    res.status(200).json({ status: 'success', data: profile });
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const updateProfile = async (
   req: AuthRequest,
   res: Response,
   next: NextFunction,
 ) => {
   try {
-    const candidate_id = req.user?.candidate_id || req.user!.id;
+    const candidate_id = (req.user?.candidate_id || req.user!.id) as string;
     const updated = await CandidateService.updateProfile(
       candidate_id,
       candidateProfileSchema.parse(req.body),
@@ -341,6 +348,123 @@ export const getProfileCompleteness = async (
   }
 };
 
+/**
+ * GET /documents/view?url=<encoded-cloudinary-url>
+ * Proxies a Cloudinary document through the authenticated backend so the
+ * browser can open PDFs inline without Cloudinary's access-control 401.
+ */
+export const viewDocument = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction,
+) => {
+  try {
+    const candidate_id = req.user?.candidate_id || req.user!.id;
+    const rawUrl = String(req.query.url || '');
+
+    if (!rawUrl) {
+      return res.status(400).json({ status: 'error', message: 'url query param required' });
+    }
+
+    // Look up this candidate's document record to confirm ownership
+    const docRecord = await prisma.candidateDocument.findFirst({
+      where: { candidate_id },
+    });
+
+    const allUrls: string[] = [];
+    if (docRecord) {
+      allUrls.push(
+        ...(docRecord.cv || []),
+        ...(docRecord.photo || []),
+        ...(docRecord.id_documents || []),
+      );
+    }
+
+    // Also check experience/education certificate URLs
+    const experiences = await prisma.experience.findMany({ where: { candidate_id }, select: { document_url: true } });
+    const educations = await prisma.education.findMany({ where: { candidate_id }, select: { certificate_url: true } });
+    experiences.forEach(e => { if (e.document_url) allUrls.push(e.document_url); });
+    educations.forEach(e => { if (e.certificate_url) allUrls.push(e.certificate_url); });
+
+    const isLocal = rawUrl.startsWith('/uploads') || rawUrl.includes('localhost');
+    const isOwned = allUrls.some((u) => u === rawUrl);
+
+    if (!isLocal && !isOwned) {
+      return res.status(403).json({ status: 'error', message: 'Access denied to this document' });
+    }
+
+    // Local file — serve from disk
+    if (isLocal) {
+      const path = require('path') as typeof import('path');
+      const localRel = rawUrl.replace(/^\/uploads\//, '');
+      const fullPath = path.join(process.cwd(), 'uploads', localRel);
+      return res.sendFile(fullPath, (err) => {
+        if (err) res.status(404).json({ status: 'error', message: 'File not found on disk' });
+      });
+    }
+
+    // Cloudinary URL — proxy through Node following redirects, add CORS headers for pdfjs
+    const fetchUrl = async (targetUrl: string, maxRedirects = 5): Promise<void> => {
+      const https = require('https') as typeof import('https');
+      const http = require('http') as typeof import('http');
+      const { URL: NodeURL } = require('url');
+
+      return new Promise((resolve, reject) => {
+        const parsed = new NodeURL(targetUrl);
+        const client = parsed.protocol === 'https:' ? https : http;
+
+        const reqOptions = {
+          hostname: parsed.hostname,
+          port: parsed.port || (parsed.protocol === 'https:' ? 443 : 80),
+          path: parsed.pathname + (parsed.search || ''),
+          method: 'GET',
+          headers: { 'User-Agent': 'ERMS-Proxy/1.0' },
+        };
+
+        client.get(reqOptions, (upstream: import('http').IncomingMessage) => {
+          const status = upstream.statusCode || 200;
+
+          // Follow redirects
+          if ((status === 301 || status === 302 || status === 307 || status === 308) &&
+              upstream.headers.location && maxRedirects > 0) {
+            const nextUrl = upstream.headers.location.startsWith('http')
+              ? upstream.headers.location
+              : `${parsed.origin}${upstream.headers.location}`;
+            upstream.resume(); // drain response
+            fetchUrl(nextUrl, maxRedirects - 1).then(resolve).catch(reject);
+            return;
+          }
+
+          if (status >= 400) {
+            upstream.resume();
+            res.status(status).json({ status: 'error', message: `Remote returned ${status}` });
+            resolve();
+            return;
+          }
+
+          const contentType = upstream.headers['content-type'] || 'application/pdf';
+          res.setHeader('Content-Type', contentType);
+          res.setHeader('Content-Disposition', 'inline');
+          res.setHeader('Cache-Control', 'private, max-age=3600');
+          res.setHeader('Access-Control-Allow-Origin', '*');
+          if (upstream.headers['content-length']) {
+            res.setHeader('Content-Length', upstream.headers['content-length']);
+          }
+          upstream.pipe(res);
+          upstream.on('end', resolve);
+          upstream.on('error', reject);
+        }).on('error', reject);
+      });
+    };
+
+    await fetchUrl(rawUrl);
+  } catch (error) {
+    if (!res.headersSent) {
+      next(error);
+    }
+  }
+};
+
 export const deleteDocument = async (
   req: AuthRequest,
   res: Response,
@@ -407,8 +531,9 @@ export const getScreeningApplications = async (
   next: NextFunction,
 ) => {
   try {
-    const applications = await CandidateService.getScreeningApplications(
+    const applications = await CandidateService.getApplicationsForCompany(
       String(req.user!.company_id),
+      { status: { in: ['SUBMITTED', 'UNDER_SCREENING'] } },
     );
     res.status(200).json({ status: 'success', data: applications });
   } catch (error) {
@@ -422,8 +547,9 @@ export const getCompanyApplications = async (
   next: NextFunction,
 ) => {
   try {
-    const applications = await CandidateService.getCompanyApplications(
+    const applications = await CandidateService.getApplicationsForCompany(
       String(req.user!.company_id),
+      {},
     );
     res.status(200).json({ status: 'success', data: applications });
   } catch (error) {
@@ -437,8 +563,9 @@ export const getShortlistedApplications = async (
   next: NextFunction,
 ) => {
   try {
-    const applications = await CandidateService.getShortlistedApplications(
+    const applications = await CandidateService.getApplicationsForCompany(
       String(req.user!.company_id),
+      { OR: [{ status: 'SHORTLISTED' }, { current_stage: 'SHORTLISTING' }] },
     );
     res.status(200).json({ status: 'success', data: applications });
   } catch (error) {

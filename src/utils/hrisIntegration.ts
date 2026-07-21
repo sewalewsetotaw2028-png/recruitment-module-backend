@@ -3,7 +3,7 @@ import { logger } from './logger';
 export const pushToHRIS = async (candidateData: any) => {
   // This is where you would call an external API
   logger.info(
-    'hrisIntegration',
+    'HRIS',
     `📤 Syncing candidate ${candidateData.email} to External HRIS...`,
   );
 
@@ -11,8 +11,8 @@ export const pushToHRIS = async (candidateData: any) => {
   const success = true;
 
   if (success) {
-    logger.info('hrisIntegration', '✅ HRIS Sync Successful');
+    logger.info('HRIS', '✅ HRIS Sync Successful');
   } else {
-    logger.error('hrisIntegration', '❌ HRIS Sync Failed');
+    logger.error('HRIS', '❌ HRIS Sync Failed');
   }
 };

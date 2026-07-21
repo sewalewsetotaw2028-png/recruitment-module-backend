@@ -3,7 +3,7 @@ import { AuthRequest } from '../middlewares/authMiddleware';
 import { WorkforceService } from '../services/workforce.service';
 import { PERMISSIONS } from '../config/rolePermissions';
 import {
-  createdepartmentSchema,
+  createdepartmentSchema as createDepartmentSchema,
   createWorkforcePlanSchema,
   updateWorkforcePlanSchema,
   rejectWorkforcePlanSchema,
@@ -32,7 +32,7 @@ export const createDepartment = async (
   try {
     const dept = await WorkforceService.createDepartment(
       req.user!.company_id,
-      createdepartmentSchema.parse(req.body),
+      createDepartmentSchema.parse(req.body),
     );
     res.status(201).json({ status: 'success', data: dept });
   } catch (error) {

@@ -163,10 +163,12 @@ export const approveRecruitmentRequest = async (
 ) => {
   try {
     const requestId = String(req.params.requestId);
+    const approvalNotes = req.body?.notes as string | undefined;
     await RecruitmentService.approveRecruitmentRequest(
       req.user!.company_id,
       requestId,
       req.user!.id,
+      approvalNotes,
     );
     res.status(200).json({ status: 'success', data: { id: requestId, status: 'APPROVED' } });
   } catch (error) {

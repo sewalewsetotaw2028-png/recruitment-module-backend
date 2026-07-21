@@ -23,7 +23,7 @@ async function main() {
       {
         name: 'Company Website',
         description: 'Direct applications from company careers page',
-        is_active:true,
+        is_active: true,
       },
       {
         name: 'LinkedIn',
@@ -154,8 +154,9 @@ async function main() {
         });
       }
     }
+    console.log('✓ Recruitment channels created');
 
-    // ── 3. Job Postings on PUBLISHED Vacancies ─────────────────────────────────
+    // ── 3. Job Postings on PUBLISHED/OPEN/IN_PROGRESS Vacancies ────────────────
     const publishedVacancyIds = [
       seededVacancies[2]?.id,
       seededVacancies[3]?.id,
@@ -181,27 +182,84 @@ async function main() {
       ['Company Website', 'Indeed'],
     ];
 
+    // NOTE: VacancyJobPosting has no @@unique constraint in schema.prisma on
+    // (vacancy_id, recruitment_channel_id), so a bare create() + catch-and-ignore
+    // is NOT idempotent — re-running this seed will duplicate postings every time.
+    // We guard manually by checking for an existing row first.
+    let createdPostings = 0;
+    let skippedPostings = 0;
     for (let i = 0; i < publishedVacancyIds.length; i++) {
       const channelNames = channelAssignments[i % channelAssignments.length];
       for (const channelName of channelNames) {
-        if (seededChannels[channelName]) {
-          await prisma.vacancyJobPosting
-            .create({
-              data: {
-                company_id: company.id,
-                vacancy_id: publishedVacancyIds[i],
-                recruitment_channel_id: seededChannels[channelName].id,
-                posting_status: 'PUBLISHED',
-                posted_at: new Date(),
-              },
-            })
-            .catch(() => {
-              /* ignore dup */
-            });
+        const channel = seededChannels[channelName];
+        if (!channel) continue;
+
+        const existingPosting = await prisma.vacancyJobPosting.findFirst({
+          where: {
+            vacancy_id: publishedVacancyIds[i],
+            recruitment_channel_id: channel.id,
+          },
+        });
+
+        if (existingPosting) {
+          skippedPostings++;
+          continue;
         }
+
+        await prisma.vacancyJobPosting.create({
+          data: {
+            company_id: company.id,
+            vacancy_id: publishedVacancyIds[i],
+            recruitment_channel_id: channel.id,
+            posting_status: 'PUBLISHED',
+            posted_at: new Date(),
+          },
+        });
+        createdPostings++;
       }
     }
-    console.log('✓ Recruitment channels and job postings created');
+    console.log(
+      `✓ Job postings created (${createdPostings} created, ${skippedPostings} already existed)`,
+    );
+
+    // ── 4. Default Evaluation Template ─────────────────────────────────────────────
+    const existingTemplate = await prisma.interviewEvaluationTemplate.findFirst({
+      where: {
+        company_id: company.id,
+        interview_category_id: null,
+        name: 'Standard Interview Evaluation',
+      },
+    });
+
+    if (!existingTemplate) {
+      const defaultTemplate = await prisma.interviewEvaluationTemplate.create({
+        data: {
+          company_id: company.id,
+          name: 'Standard Interview Evaluation',
+          interview_category_id: null,
+          is_active: true,
+        },
+      });
+
+      const defaultCriteria = [
+        { name: 'Technical Skills', weight: 25, max_score: 10, order: 1 },
+        { name: 'Communication Skills', weight: 20, max_score: 10, order: 2 },
+        { name: 'Problem Solving', weight: 20, max_score: 10, order: 3 },
+        { name: 'Cultural Fit', weight: 15, max_score: 10, order: 4 },
+        { name: 'Relevant Experience', weight: 20, max_score: 10, order: 5 },
+      ];
+
+      await prisma.evaluationCriteria.createMany({
+        data: defaultCriteria.map((c) => ({
+          template_id: defaultTemplate.id,
+          ...c,
+        })),
+      });
+
+      console.log('✓ Default evaluation template created');
+    } else {
+      console.log('✓ Default evaluation template already exists');
+    }
 
     console.log('\n✅ Configuration data seeded successfully!');
     console.log('─────────────────────────────────────────────────────────');

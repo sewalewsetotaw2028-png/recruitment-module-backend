@@ -4,6 +4,7 @@ import {
   acceptOffer,
   rejectOffer,
   getCandidateOffers,
+  getCompanyOffers,
 } from '../controllers/offer.controller';
 import { authenticate } from '../middlewares/authMiddleware';
 import { authorize } from '../middlewares/roleMiddleware';
@@ -12,6 +13,9 @@ import { PERMISSIONS } from '../config/rolePermissions';
 const router = Router();
 
 router.use(authenticate);
+
+// HR get all company offers
+router.get('/company', authorize(PERMISSIONS.ISSUE_OFFER), getCompanyOffers);
 
 // Issue an offer
 router.post('/issue', authorize(PERMISSIONS.ISSUE_OFFER), issueOffer);

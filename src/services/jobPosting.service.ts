@@ -97,7 +97,7 @@ function buildTelegramMessage(vacancy: {
   employment_type: string;
   open_positions: number;
   closing_date: Date | null;
-}): string {
+}, applyLink?: string): string {
   const lines: string[] = [
     `<b>🚀 New Job Opening: ${vacancy.title}</b>`,
     '',
@@ -120,7 +120,12 @@ function buildTelegramMessage(vacancy: {
     lines.push('', `✅ <b>Requirements:</b>`, vacancy.requirements.slice(0, 200) + (vacancy.requirements.length > 200 ? '…' : ''));
   }
 
-  lines.push('', '📩 To apply, reply to this message or contact our HR team.');
+  lines.push('', '📩 <b>To apply:</b>');
+  if (applyLink) {
+    lines.push(`🔗 <a href="${applyLink}">Apply Now — Create your candidate account and submit your application</a>`);
+  } else {
+    lines.push('Reply to this message or contact our HR team to apply.');
+  }
 
   return lines.join('\n');
 }
@@ -265,6 +270,8 @@ export const createJobPostings = async (
   }
 
   // Build the Telegram message once (shared across all Telegram channels)
+  const appUrl = process.env.VITE_APP_URL || process.env.FRONTEND_URL || 'http://localhost:5173';
+  const applyLink = `${appUrl}/login?apply=${vacancy_id}`;
   const telegramMessage = buildTelegramMessage({
     title: vacancy.title,
     location: vacancy.location,
@@ -273,7 +280,7 @@ export const createJobPostings = async (
     employment_type: String(vacancy.employment_type),
     open_positions: vacancy.open_positions,
     closing_date: vacancy.closing_date,
-  });
+  }, applyLink);
 
   // Upsert a VacancyJobPosting per channel (avoid duplicates via findFirst + update/create)
   const created = await Promise.all(
@@ -289,6 +296,101 @@ export const createJobPostings = async (
         });
       }
 
+      // ── LinkedIn, WhatsApp, Facebook, Email: log intent; real API calls
+      //    require OAuth flows outside this backend — stored as PUBLISHED so
+      //    the HR operator sees the channel is targeted. If api_token is
+      //    missing the channel falls back to manual (still stored as PUBLISHED
+      //    so HR knows to post manually).
+      let channelUrl: string | null = telegramUrl;
+      const name = ch.name.toLowerCase();
+
+      // LinkedIn Job Posting API (requires company_id in api_username + oauth token)
+      if (!channelUrl && name.includes('linkedin') && ch.api_token && ch.api_username) {
+        try {
+          const liBody = JSON.stringify({
+            externalJobPostingId: `adiu-${vacancy_id}`,
+            title: vacancy.title,
+            description: { text: `${vacancy.description}\n\n${vacancy.requirements}` },
+            employmentStatus: vacancy.employment_type === 'FULL_TIME' ? 'FULL_TIME' : 'CONTRACT',
+            listingType: 'EXTERNAL',
+            location: { countryCode: 'ET', city: vacancy.location },
+            listedAt: Date.now(),
+            jobPostingOperationType: 'CREATE',
+          });
+          const liRes = await fetch(`https://api.linkedin.com/v2/simpleJobPostings`, {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${ch.api_token}`,
+              'Content-Type': 'application/json',
+              'X-Restli-Protocol-Version': '2.0.0',
+            },
+            body: liBody,
+          });
+          if (liRes.ok) {
+            const liJson = await liRes.json() as { id?: string };
+            if (liJson.id) {
+              channelUrl = `https://www.linkedin.com/jobs/view/${liJson.id}`;
+            }
+          } else {
+            console.warn('[LinkedIn] post failed:', await liRes.text());
+          }
+        } catch (err) {
+          console.error('[LinkedIn] error:', err);
+        }
+      }
+
+      // Facebook Graph API — post to page feed
+      if (!channelUrl && name.includes('facebook') && ch.api_token && ch.api_username) {
+        try {
+          const fbText = `🚀 ${vacancy.title}\n📍 ${vacancy.location}\n💼 ${vacancy.employment_type.replace('_',' ')}\n\n${vacancy.description?.slice(0,400) || ''}\n\nApply: ${applyLink}`;
+          const fbRes = await fetch(
+            ch.api_url || `https://graph.facebook.com/v18.0/${ch.api_username}/feed`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ message: fbText, access_token: ch.api_token }),
+            }
+          );
+          if (fbRes.ok) {
+            const fbJson = await fbRes.json() as { id?: string };
+            if (fbJson.id) channelUrl = `https://www.facebook.com/${ch.api_username}/posts/${fbJson.id.split('_')[1]}`;
+          } else {
+            console.warn('[Facebook] post failed:', await fbRes.text());
+          }
+        } catch (err) {
+          console.error('[Facebook] error:', err);
+        }
+      }
+
+      // WhatsApp Business API — send message to group/broadcast
+      if (!channelUrl && name.includes('whatsapp') && ch.api_token && ch.api_username) {
+        try {
+          const waText = `*${vacancy.title}* 🚀\n📍 ${vacancy.location} | 💼 ${vacancy.employment_type.replace('_',' ')}\n\n${vacancy.description?.slice(0,300) || ''}\n\n✅ Apply: ${applyLink}`;
+          const waUrl = ch.api_url || `https://graph.facebook.com/v18.0/${ch.api_username}/messages`;
+          const waRes = await fetch(waUrl, {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${ch.api_token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              messaging_product: 'whatsapp',
+              to: ch.api_username,
+              type: 'text',
+              text: { body: waText },
+            }),
+          });
+          if (waRes.ok) {
+            const waJson = await waRes.json() as { messages?: Array<{ id: string }> };
+            channelUrl = waJson.messages?.[0]?.id ? `whatsapp:${waJson.messages[0].id}` : null;
+          } else {
+            console.warn('[WhatsApp] post failed:', await waRes.text());
+          }
+        } catch (err) {
+          console.error('[WhatsApp] error:', err);
+        }
+      }
+
       const existing = await prisma.vacancyJobPosting.findFirst({
         where: { vacancy_id, recruitment_channel_id: ch.id },
       });
@@ -299,7 +401,7 @@ export const createJobPostings = async (
             posting_status: PostingStatus.PUBLISHED,
             posted_at: new Date(),
             error_log: null,
-            ...(telegramUrl ? { external_job_url: telegramUrl } : {}),
+            ...(channelUrl ? { external_job_url: channelUrl } : {}),
           },
           select: postingSelect,
         });
@@ -311,7 +413,7 @@ export const createJobPostings = async (
           company_id: Number(company_id),
           posting_status: PostingStatus.PUBLISHED,
           posted_at: new Date(),
-          ...(telegramUrl ? { external_job_url: telegramUrl } : {}),
+          ...(channelUrl ? { external_job_url: channelUrl } : {}),
         },
         select: postingSelect,
       });

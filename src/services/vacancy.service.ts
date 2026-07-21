@@ -2,15 +2,20 @@ import prisma from '../config/database';
 import { AppError } from '../utils/AppError';
 import { CreateVacancyDTO } from '../types/recruitment.types';
 import { Decimal } from '@prisma/client/runtime/library';
+import { logger } from '../utils/logger';
+import {
+  notifyVacancyCreated,
+  notifyVacancyPublished,
+} from '../utils/notificationWiring';
 
-export function assertCompanyRecord<T extends { company_id: number | string }>(
-  record: T | null | undefined,
+const assertCompanyRecord = (
+  record: { company_id: number | string } | null,
   company_id: string | number,
-): asserts record is T {
+): void => {
   if (!record || String(record.company_id) !== String(company_id)) {
     throw new AppError('Not found or unauthorized', 404);
   }
-}
+};
 
 const toEmploymentType = (value?: string) => {
   const employmentType = String(value ?? 'full_time').toUpperCase();
@@ -331,7 +336,7 @@ export class VacancyService {
       );
     }
 
-    return await prisma.vacancy.create({
+    const vacancy = await prisma.vacancy.create({
       data: {
         company_id: Number(company_id),
         recruitment_request_id: data.recruitment_request_id,
@@ -353,6 +358,24 @@ export class VacancyService {
       },
       select: vacancySelect,
     });
+
+    // Fire-and-forget notification to hiring manager
+    setImmediate(async () => {
+      try {
+        const department = await prisma.department.findUnique({ where: { id: request.department_id } });
+        const hiringManagerId = request.requested_by_user_id;
+        await notifyVacancyCreated(
+          Number(company_id),
+          (vacancy as any).id,
+          (vacancy as any).title,
+          (vacancy as any).vacancy_number,
+          department?.name || '',
+          hiringManagerId,
+        );
+      } catch (e) { /* swallow */ }
+    });
+
+    return vacancy;
   }
 
   static async getVacancyApplications(
@@ -463,6 +486,9 @@ export class VacancyService {
         ? (toEmploymentType(data.employment_type) as any)
         : existing.employment_type,
       open_positions: data.open_positions ?? existing.open_positions,
+      opening_date: data.opening_date
+        ? new Date(data.opening_date)
+        : existing.opening_date,
       closing_date: data.closing_date
         ? new Date(data.closing_date)
         : existing.closing_date,
@@ -522,7 +548,7 @@ export class VacancyService {
     });
     assertCompanyRecord(existing, company_id);
 
-    return await prisma.vacancy.update({
+    const vacancy = await prisma.vacancy.update({
       where: { id: vacancy_id },
       data: {
         posting_status: 'PUBLISHED',
@@ -531,6 +557,29 @@ export class VacancyService {
       },
       select: vacancySelect,
     });
+
+    // Fire-and-forget notification to hiring manager
+    setImmediate(async () => {
+      try {
+        const fullVacancy = await prisma.vacancy.findUnique({
+          where: { id: vacancy_id },
+          include: {
+            recruitment_request: { select: { requested_by_user_id: true } },
+          },
+        });
+        if (fullVacancy) {
+          await notifyVacancyPublished(
+            Number(company_id),
+            vacancy_id,
+            (vacancy as any).title,
+            (vacancy as any).vacancy_number,
+            fullVacancy.recruitment_request.requested_by_user_id,
+          );
+        }
+      } catch (e) { /* swallow */ }
+    });
+
+    return vacancy;
   }
 
   static async unpostVacancy(company_id: string | number, vacancy_id: string) {
@@ -794,7 +843,7 @@ export class VacancyService {
     assertCompanyRecord(vacancy, company_id);
 
     // Validate vacancy status - must be IN_PROGRESS or PUBLISHED
-    if (!['IN_PROGRESS', 'PUBLISHED', 'OPEN'].includes(vacancy.status)) {
+    if (vacancy && !['IN_PROGRESS', 'PUBLISHED', 'OPEN'].includes(vacancy.status)) {
       throw new AppError(
         'Cannot select from a vacancy that is not IN_PROGRESS, PUBLISHED, or OPEN',
         400,
@@ -884,7 +933,7 @@ export class VacancyService {
         },
       });
 
-      if (currentActiveSelections >= vacancy.open_positions) {
+      if (vacancy && currentActiveSelections >= vacancy.open_positions) {
         throw new AppError(
           'All approved openings for this vacancy are already filled or in offer processing.',
           409,
@@ -907,7 +956,7 @@ export class VacancyService {
           from_stage: selectedApp.current_stage,
           to_stage: 'OFFER',
           changed_by_id: user_id,
-          notes: `Selected for ${vacancy.title} by ${user_id}`,
+          notes: `Selected for ${vacancy?.title} by ${user_id}`,
         },
       });
 
@@ -950,10 +999,10 @@ export class VacancyService {
       const hiringMinutePayload = {
         prepared_by_id: user_id,
         recruitment_request_type:
-          vacancy.recruitment_request?.request_type || 'NEW_HEADCOUNT',
+          vacancy?.recruitment_request?.request_type || 'NEW_HEADCOUNT',
         recruitment_classification:
-          vacancy.recruitment_request?.planning_type || 'PLANNED',
-        application_type: vacancy.application_type || 'EXTERNAL',
+          vacancy?.recruitment_request?.planning_type || 'PLANNED',
+        application_type: vacancy?.application_type || 'EXTERNAL',
         interview_date:
           selectedSnapshot.firstInterviewDate ||
           parseOptionalDate(data.expected_joining_date) ||
@@ -969,7 +1018,7 @@ export class VacancyService {
         expected_joining_date:
           parseOptionalDate(data.expected_joining_date) ||
           new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-        recommended_position: vacancy.title,
+        recommended_position: vacancy?.title,
         expected_salary: new Decimal(data.expected_salary.toString()),
         reason_for_selection: data.reason_for_selection,
         alternative_candidate_id: data.alternative_application_id
@@ -1037,12 +1086,12 @@ export class VacancyService {
       }
 
       // 7. Update vacancy status based on the number of active selections
-      if (metrics.activeSelectedCount >= vacancy.open_positions) {
+      if (vacancy && metrics.activeSelectedCount >= vacancy.open_positions) {
         await tx.vacancy.update({
           where: { id: vacancy_id },
           data: { status: 'CLOSED' },
         });
-      } else if (vacancy.status === 'CLOSED') {
+      } else if (vacancy && vacancy.status === 'CLOSED') {
         await tx.vacancy.update({
           where: { id: vacancy_id },
           data: { status: 'IN_PROGRESS' },
@@ -1160,5 +1209,80 @@ export class VacancyService {
 
       return { success: true, message: 'Selection revoked successfully' };
     });
+  }
+
+  /**
+   * Close expired vacancies - scheduled job functionality
+   * Finds all OPEN / PUBLISHED vacancies whose closing_date has passed
+   * and transitions them to CLOSED automatically.
+   */
+  static async closeExpiredVacancies(): Promise<void> {
+    const now = new Date();
+
+    try {
+      const expired = await prisma.vacancy.findMany({
+        where: {
+          status: { in: ['OPEN', 'IN_PROGRESS'] },
+          closing_date: { lt: now },
+        },
+        select: { id: true, title: true, closing_date: true, company_id: true },
+      });
+
+      if (expired.length === 0) {
+        logger.info('VACANCY SERVICE', 'No expired vacancies to close');
+        return;
+      }
+
+      logger.info('VACANCY SERVICE', `Closing ${expired.length} expired vacancies`);
+
+      await prisma.vacancy.updateMany({
+        where: {
+          id: { in: expired.map((v) => v.id) },
+        },
+        data: {
+          status: 'CLOSED',
+          closed_at: now,
+          posting_status: 'WITHDRAWN',
+        },
+      });
+
+      // Log each closure in the activity log for audit trail
+      await prisma.activityLog.createMany({
+        data: expired.map((v) => ({
+          company_id: v.company_id,
+          action: 'auto_closed',
+          entity_type: 'Vacancy',
+          entity_id: v.id,
+          description: `Vacancy automatically closed — deadline ${v.closing_date?.toISOString().slice(0, 10)} passed`,
+          changes: {
+            previousStatus: 'OPEN',
+            nextStatus: 'CLOSED',
+            reason: 'closing_date_passed',
+          },
+        })),
+        skipDuplicates: true,
+      });
+
+      logger.success('VACANCY SERVICE', `Closed ${expired.length} expired vacancies`);
+    } catch (err) {
+      logger.error('VACANCY SERVICE', 'Error closing expired vacancies', err);
+      throw err;
+    }
+  }
+
+  /**
+   * Start the recurring scheduler for closing expired vacancies.
+   * Runs immediately on startup, then every hour.
+   */
+  static startVacancyExpiryScheduler(): void {
+    // Run once immediately on startup
+    void this.closeExpiredVacancies();
+
+    // Then run every hour (3_600_000 ms)
+    setInterval(() => {
+      void this.closeExpiredVacancies();
+    }, 60 * 60 * 1000);
+
+    logger.info('VACANCY SERVICE', 'Vacancy expiry scheduler started — runs every hour');
   }
 }

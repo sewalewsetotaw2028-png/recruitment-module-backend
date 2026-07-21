@@ -8,6 +8,8 @@ const seedFiles = [
   '04-interview-data.ts',
   '05-hiring-data.ts',
   '06-configuration-data.ts',
+  '07-offer-data.ts',
+  '08-notification-data.ts',
 ];
 
 async function runSeedFile(filename: string) {

@@ -1,9 +1,11 @@
 import bcrypt from 'bcryptjs';
+import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import prisma from '../config/database';
 import { AppError } from '../utils/AppError';
 import { PERMISSIONS } from '../config/rolePermissions';
 import { CloudinaryService } from './cloudinary.service';
+import { EmailService } from './email.service';
 import { logger } from '../utils/logger';
 import {
   CandidateRegisterDTO,
@@ -81,6 +83,37 @@ const normalizeText = (value: unknown) =>
     .trim()
     .toLowerCase();
 
+/**
+ * Normalize a degree string to a canonical form so that
+ * "BACHELOR", "bachelor's degree", "Bachelor of Science" all match "Bachelor's Degree"
+ */
+const normalizeDegree = (raw: string): string => {
+  const t = raw.trim().toLowerCase();
+  if (t.startsWith('phd') || t.startsWith('doctor') || t === 'ph.d') return "phd";
+  if (t.startsWith("master") || t === 'msc' || t === 'mba' || t === 'ma' || t === 'ms') return "master's degree";
+  if (t.startsWith("bachelor") || t === 'bsc' || t === 'ba' || t === 'bs') return "bachelor's degree";
+  if (t.startsWith("associate")) return "associate's degree";
+  if (t.startsWith("high school") || t === 'diploma') return "high school";
+  if (t.startsWith("professional cert")) return "professional certificate";
+  return t;
+};
+
+/**
+ * True if every token in `expectedTokens` is found in `actualTokens` (case-insensitive, trimmed).
+ * Handles comma/space separated lists like "TypeScript, React" vs "TypeScript, Node.js, React"
+ */
+const isSubsetMatch = (expected: unknown, actual: string): boolean => {
+  const expectedStr = normalizeText(expected);
+  const actualStr = normalizeText(actual);
+  if (!expectedStr) return actualStr.length > 0;
+  const expectedTokens = expectedStr.split(',').map((v) => v.trim()).filter(Boolean);
+  const actualTokens = actualStr.split(',').map((v) => v.trim()).filter(Boolean);
+  if (expectedTokens.length === 0) return true;
+  return expectedTokens.every((et) =>
+    actualTokens.some((at) => at === et || at.includes(et) || et.includes(at)),
+  );
+};
+
 const evaluateCriterion = (
   criterion: ScreeningCriterionRule,
   context: {
@@ -116,15 +149,25 @@ const evaluateCriterion = (
     .map((certification) => certification.name || '')
     .filter(Boolean)
     .join(', ');
+  // Normalize degrees for comparison (e.g. BACHELOR → bachelor's degree)
+  const normalizedDegrees = context.candidate.educations
+    .map((edu) => normalizeDegree(edu.degree))
+    .filter(Boolean);
+  const educationDegrees = normalizedDegrees.join(', ');
   const educationSummary = context.candidate.educations
     .map((education) =>
       `${education.degree} ${education.field_of_study}`.trim(),
     )
     .filter(Boolean)
     .join(', ');
+  const fieldOfStudy = context.candidate.educations
+    .map((edu) => edu.field_of_study)
+    .filter(Boolean)
+    .join(', ');
 
   const actualValueByField: Record<string, string | number | boolean> = {
-    'educational qualification': educationSummary,
+    'educational qualification': educationDegrees,
+    'field of study': fieldOfStudy,
     'relevant work experience': totalYears,
     'professional certification': certifications,
     'technical skills': context.candidate.skills.join(', '),
@@ -150,37 +193,45 @@ const evaluateCriterion = (
   let met = false;
   if (operator === 'min_years') {
     met = Number(actualValue) >= Number(expected ?? 0);
+  } else if (operator === 'max_salary') {
+    // Candidate's expected_salary must be within budget (≤ configured max)
+    const candidateSalary = Number(context.candidate.expected_salary ?? 0);
+    const budgetMax = Number(expected ?? 0);
+    met = budgetMax > 0 && candidateSalary > 0 && candidateSalary <= budgetMax;
   } else if (operator === 'equals') {
-    // For comma-separated fields like languages/skills, check if expected value is contained
-    const normalizedActual = normalizeText(actualValue);
-    const normalizedExpected = normalizeText(expected);
-    const actualValues = normalizedActual
-      .split(',')
-      .map((v) => v.trim())
-      .filter(Boolean);
-    const expectedValues = normalizedExpected
-      .split(',')
-      .map((v) => v.trim())
-      .filter(Boolean);
-
-    // If actual has multiple values, check if all expected values are present (subset matching)
-    if (actualValues.length > 1 || expectedValues.length > 1) {
-      met = expectedValues.every((ev) => actualValues.some((av) => av === ev));
+    // For educational qualification: normalize expected degree before comparing
+    if (field === 'educational qualification') {
+      const normalizedExpected = normalizeDegree(normalizeText(expected));
+      const actualDegrees = String(actualValue)
+        .split(',')
+        .map((d) => d.trim().toLowerCase())
+        .filter(Boolean);
+      met = actualDegrees.some(
+        (d) => d === normalizedExpected || d.includes(normalizedExpected) || normalizedExpected.includes(d),
+      );
     } else {
-      met = normalizedActual === normalizedExpected;
+      // Subset match — works for comma-separated lists (skills, languages, etc.)
+      met = isSubsetMatch(expected, String(actualValue));
     }
   } else if (operator === 'contains') {
-    met = normalizeText(actualValue).includes(normalizeText(expected));
+    // Subset match — "TypeScript,React" is contained in "TypeScript, Node.js, React"
+    met = isSubsetMatch(expected, String(actualValue));
   } else {
+    // 'required' — just check non-empty; if a value is specified also subset-match it
     met = normalizeText(actualValue).length > 0;
     if (
       expected !== undefined &&
       expected !== null &&
       String(expected).trim() !== ''
     ) {
-      met = met && normalizeText(actualValue).includes(normalizeText(expected));
+      met = met && isSubsetMatch(expected, String(actualValue));
     }
   }
+
+  // For the displayed actual_value, use the full "degree field_of_study" format
+  const displayActualValue = field === 'educational qualification'
+    ? educationSummary || actualValue
+    : actualValue;
 
   return {
     field: criterion.field || '',
@@ -189,7 +240,7 @@ const evaluateCriterion = (
     weight,
     met,
     score: met ? weight : 0,
-    actual_value: actualValue,
+    actual_value: displayActualValue,
   };
 };
 
@@ -221,18 +272,42 @@ export class CandidateService {
     if (existing) throw new AppError('Email already registered', 400);
 
     const hashedPassword = await bcrypt.hash(data.password, 12);
-    const company_id = data.company_id
-      ? Number(data.company_id)
-      : (await prisma.company.findFirst({ select: { id: true } }))?.id;
 
-    if (!company_id) {
-      throw new AppError(
-        'Unable to determine company for candidate registration',
-        400,
-      );
+    // Resolve company: use provided company_id or find/create a default one
+    let company_id: number;
+    if (data.company_id) {
+      company_id = Number(data.company_id);
+    } else {
+      const existingCompany = await prisma.company.findFirst({
+        select: { id: true },
+      });
+      if (existingCompany) {
+        company_id = existingCompany.id;
+      } else {
+        // Create a default company if none exists (same pattern as AuthService.register)
+        const defaultCode = 'ACME' + Math.floor(1000 + Math.random() * 9000);
+        const company = await prisma.company.create({
+          data: {
+            name: 'Acme Corp',
+            email: 'admin@acme.com',
+            company_code: defaultCode,
+          },
+        });
+        company_id = company.id;
+      }
     }
 
-    return await prisma.candidate.create({
+    // Generate email verification token
+    const emailToken = crypto.randomBytes(32).toString('hex');
+    const expiryHours = parseInt(
+      process.env.EMAIL_VERIFICATION_TOKEN_EXPIRY_HOURS || '24',
+      10,
+    );
+    const tokenExpires = new Date(
+      Date.now() + expiryHours * 60 * 60 * 1000,
+    );
+
+    const candidate = await prisma.candidate.create({
       data: {
         first_name: data.first_name,
         last_name: data.last_name,
@@ -240,9 +315,79 @@ export class CandidateService {
         password_hash: hashedPassword,
         company_id,
         terms_accepted: data.terms_accepted ?? false,
+        email_verification_token: emailToken,
+        email_verification_expires: tokenExpires,
       },
-      select: { id: true, email: true, first_name: true, last_name: true },
+      select: {
+        id: true,
+        email: true,
+        first_name: true,
+        last_name: true,
+        email_verification_token: true,
+      },
     });
+
+    // Send verification email asynchronously (non-blocking)
+    const frontendUrl =
+      process.env.FRONTEND_URL || 'http://localhost:5173';
+    const verificationUrl = `${frontendUrl}/verify-email/${emailToken}?type=candidate`;
+    const appName = process.env.APP_NAME || 'Recruitment Portal';
+
+    EmailService.sendEmail({
+      to: candidate.email,
+      subject: 'Verify your email address',
+      html: `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>Verify your email</title>
+          <style>
+            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+            .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+            .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
+            .content { background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px; }
+            .cta-button { display: inline-block; background: #667eea; color: white; padding: 15px 30px; text-decoration: none; border-radius: 5px; margin: 20px 0; font-weight: bold; }
+            .footer { text-align: center; margin-top: 30px; color: #777; font-size: 12px; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <h1>Verify Your Email</h1>
+            </div>
+            <div class="content">
+              <p>Hello <strong>${candidate.first_name}</strong>,</p>
+              <p>Thank you for creating an account with ${appName}. Please verify your email address by clicking the button below:</p>
+              <div style="text-align: center;">
+                <a href="${verificationUrl}" class="cta-button">Verify Email Address</a>
+              </div>
+              <p>Or copy and paste this link into your browser:</p>
+              <p style="word-break: break-all; font-size: 12px; color: #667eea;">${verificationUrl}</p>
+              <p>This link will expire in ${expiryHours} hours.</p>
+              <p>If you did not create this account, please ignore this email.</p>
+              <p>Best regards,<br>${appName} Team</p>
+            </div>
+            <div class="footer">
+              <p>© ${new Date().getFullYear()} ${appName}. All rights reserved.</p>
+            </div>
+          </div>
+        </body>
+        </html>
+      `,
+    }).catch((err) => {
+      // Log and swallow — registration succeeded regardless
+      console.error('Failed to send verification email:', err);
+    });
+
+    return {
+      id: candidate.id,
+      email: candidate.email,
+      first_name: candidate.first_name,
+      last_name: candidate.last_name,
+      is_email_verified: false,
+    };
   }
 
   static async login(data: CandidateLoginDTO) {
@@ -282,38 +427,24 @@ export class CandidateService {
         last_name: candidate.last_name,
         role: 'candidate',
         permissions: [PERMISSIONS.CANDIDATE_APPLICATION_READ],
+        is_email_verified: candidate.is_email_verified,
       },
     };
   }
 
   // ─── Profile ─────────────────────────────────────────────────────────────────
 
-    static async getScreeningApplications(company_id: string) {
-    return this.getApplicationsForCompany(company_id, {
-      status: { in: ['SUBMITTED', 'UNDER_SCREENING'] },
-    });
-  }
-
-  static async getCompanyApplications(company_id: string) {
-    return this.getApplicationsForCompany(company_id, {});
-  }
-
-  static async getShortlistedApplications(company_id: string) {
-    return this.getApplicationsForCompany(company_id, {
-      OR: [{ status: 'SHORTLISTED' }, { current_stage: 'SHORTLISTING' }],
-    });
-  }
-
-  private static async getApplicationsForCompany(
+  static async getApplicationsForCompany(
     company_id: string,
-    where: Record<string, unknown>,
+    additionalFilters?: Record<string, unknown>,
   ) {
     const numericCompanyId = Number(company_id);
+    const whereClause: Record<string, unknown> = {
+      company_id: numericCompanyId,
+      ...additionalFilters,
+    };
     const applications = await prisma.application.findMany({
-      where: {
-        company_id: numericCompanyId,
-        ...where,
-      },
+      where: whereClause,
       include: {
         candidate: {
           include: {
@@ -334,10 +465,10 @@ export class CandidateService {
       orderBy: { submitted_at: 'desc' },
     });
 
-    const vacancy_ids = Array.from(
+    const vacancyIds = Array.from(
       new Set(applications.map((application) => application.vacancy_id)),
     );
-    const candidate_ids = Array.from(
+    const candidateIds = Array.from(
       new Set(applications.map((application) => application.candidate_id)),
     );
 
@@ -346,14 +477,14 @@ export class CandidateService {
         where: {
           company_id: numericCompanyId,
           is_active: true,
-          OR: [{ vacancy_id: { in: vacancy_ids } }, { vacancy_id: null }],
+          OR: [{ vacancy_id: { in: vacancyIds } }, { vacancy_id: null }],
         },
         orderBy: { updated_at: 'desc' },
       }),
       prisma.screeningLog.findMany({
         where: {
-          vacancy_id: { in: vacancy_ids },
-          candidate_id: { in: candidate_ids },
+          vacancy_id: { in: vacancyIds },
+          candidate_id: { in: candidateIds },
         },
         orderBy: { screened_at: 'desc' },
       }),
@@ -467,7 +598,46 @@ export class CandidateService {
     });
   }
 
-    // 7. Get Candidate Profile (including experiences, educations, documents)
+  // 5. Add Candidate Document
+  static async addDocument(candidate_id: string, file: Express.Multer.File, documentType: 'cv' | 'photo' | 'id_documents') {
+    // Verify candidate exists
+    const candidate = await prisma.candidate.findUnique({
+      where: { id: candidate_id },
+    });
+    if (!candidate) {
+      throw new AppError('Candidate not found', 404);
+    }
+    
+    const fileUrl = `/uploads/${file.filename}`;
+    
+    // Update the appropriate document array
+    const updateData: Record<string, unknown> = {
+      candidate_id: candidate_id,
+      company_id: candidate.company_id,
+    };
+    
+    if (documentType === 'cv') {
+      updateData.cv = { push: fileUrl };
+    } else if (documentType === 'photo') {
+      updateData.photo = { push: fileUrl };
+    } else if (documentType === 'id_documents') {
+      updateData.id_documents = { push: fileUrl };
+    }
+    
+    return await prisma.candidateDocument.upsert({
+      where: { candidate_id_company_id: { candidate_id, company_id: candidate.company_id } },
+      update: updateData,
+      create: {
+        candidate_id: candidate_id,
+        company_id: candidate.company_id,
+        cv: documentType === 'cv' ? [fileUrl] : [],
+        photo: documentType === 'photo' ? [fileUrl] : [],
+        id_documents: documentType === 'id_documents' ? [fileUrl] : [],
+      },
+    });
+  }
+
+  // 7. Get Candidate Profile (including experiences, educations, documents)
 
   static async getProfile(candidate_id: string) {
     const candidate = await prisma.candidate.findUnique({
@@ -480,6 +650,33 @@ export class CandidateService {
         addresses: true,
         phones: true,
         talent_rosters: {
+          select: {
+            id: true,
+            status: true,
+            talent_category: true,
+            added_at: true,
+          },
+          orderBy: { added_at: 'desc' },
+          take: 1,
+        },
+      },
+    });
+    if (!candidate) throw new AppError('Candidate not found', 404);
+    return candidate;
+  }
+
+  static async getCandidateById(candidate_id: string, company_id: number) {
+    const candidate = await prisma.candidate.findUnique({
+      where: { id: candidate_id },
+      include: {
+        candidate_document: true,
+        educations: { orderBy: { graduation_year: 'desc' } },
+        experiences: { orderBy: { start_date: 'desc' } },
+        certifications: { orderBy: { created_at: 'desc' } },
+        addresses: true,
+        phones: true,
+        talent_rosters: {
+          where: { company_id },
           select: {
             id: true,
             status: true,
@@ -584,14 +781,10 @@ export class CandidateService {
       );
     } catch (uploadError) {
       console.error(
-        '[uploadAvatar] Cloudinary upload failed, using local fallback:',
+        '[uploadAvatar] Cloudinary upload failed:',
         uploadError,
       );
-      cloudinaryUrl = await CloudinaryService.saveLocalFallback(
-        file.buffer,
-        file.originalname,
-        'candidates/avatars',
-      );
+      throw new AppError('Failed to upload avatar', 500);
     }
 
     // Store the URL on the CandidateDocument record for this candidate
@@ -717,13 +910,19 @@ export class CandidateService {
         key: 'skills',
         label: 'Skills',
         path: '/candidate/profile',
-        complete: Boolean(candidate.skills && candidate.skills.length > 0),
+        complete: Array.isArray(candidate.skills)
+          ? candidate.skills.length > 0
+          : typeof candidate.skills === 'string' &&
+            (candidate.skills as string).trim().length > 0,
       },
       {
         key: 'languages',
         label: 'Languages',
         path: '/candidate/profile',
-        complete: Boolean(candidate.languages && candidate.languages.length > 0),
+        complete: Array.isArray(candidate.languages)
+          ? candidate.languages.length > 0
+          : typeof candidate.languages === 'string' &&
+            (candidate.languages as string).trim().length > 0,
       },
       {
         key: 'documents',
@@ -918,6 +1117,31 @@ export class CandidateService {
       },
     });
 
+    // Fire-and-forget notification to candidate
+    setImmediate(async () => {
+      try {
+        const { notifyApplicationReceived, notifyNewApplicationToHR } = await import('../utils/notificationWiring');
+        const candidate = await prisma.candidate.findUnique({ where: { id: candidate_id } });
+        const candidateName = candidate ? `${candidate.first_name} ${candidate.last_name}`.trim() : 'Candidate';
+        const company = await prisma.company.findUnique({ where: { id: company_id } });
+        await notifyApplicationReceived(
+          company_id,
+          candidate_id,
+          candidateName,
+          vacancy.title,
+          company?.name || 'Company',
+          application.id,
+        );
+        // Notify HR/recruiter users with application:screen permission
+        await notifyNewApplicationToHR(
+          company_id,
+          candidateName,
+          vacancy.title,
+          application.id,
+        );
+      } catch (e) { /* swallow */ }
+    });
+
     return application;
   }
 
@@ -1060,8 +1284,8 @@ export class CandidateService {
       throw new AppError('This offer has expired', 400);
     }
 
-    return await prisma.$transaction(async (tx) => {
-      const updated = await tx.offer.update({
+    const updated = await prisma.$transaction(async (tx) => {
+      const upd = await tx.offer.update({
         where: { id: offer_id },
         data: { status: 'ACCEPTED', accepted_at: new Date() },
       });
@@ -1069,8 +1293,33 @@ export class CandidateService {
         where: { id: offer.application_id },
         data: { status: 'OFFER_ACCEPTED' },
       });
-      return updated;
+      return upd;
     });
+
+    // Fire-and-forget notification to HR
+    setImmediate(async () => {
+      try {
+        const { notifyOfferAccepted } = await import('../utils/notificationWiring');
+        const candidate = await prisma.candidate.findUnique({
+          where: { id: candidate_id },
+          select: { first_name: true, last_name: true },
+        });
+        const appWithVacancy = await prisma.application.findUnique({
+          where: { id: offer.application_id },
+          include: { vacancy: { select: { title: true } } },
+        });
+        const candidateName = candidate ? `${candidate.first_name} ${candidate.last_name}`.trim() : 'Candidate';
+        const vacancyTitle = appWithVacancy?.vacancy?.title || 'a position';
+        await notifyOfferAccepted(
+          offer.company_id,
+          offer.created_by_user_id,
+          candidateName,
+          vacancyTitle,
+        );
+      } catch (e) { /* swallow */ }
+    });
+
+    return updated;
   }
 
   /** Decline a SENT offer */
@@ -1102,8 +1351,8 @@ export class CandidateService {
       );
     }
 
-    return await prisma.$transaction(async (tx) => {
-      const updated = await tx.offer.update({
+    const updated = await prisma.$transaction(async (tx) => {
+      const upd = await tx.offer.update({
         where: { id: offer_id },
         data: {
           status: 'DECLINED',
@@ -1145,8 +1394,33 @@ export class CandidateService {
         },
       });
 
-      return updated;
+      return upd;
     });
+
+    // Fire-and-forget notification to HR
+    setImmediate(async () => {
+      try {
+        const { notifyOfferDeclined } = await import('../utils/notificationWiring');
+        const candidate = await prisma.candidate.findUnique({
+          where: { id: candidate_id },
+          select: { first_name: true, last_name: true },
+        });
+        const appWithVacancy = await prisma.application.findUnique({
+          where: { id: offer.application_id },
+          include: { vacancy: { select: { title: true } } },
+        });
+        const candidateName = candidate ? `${candidate.first_name} ${candidate.last_name}`.trim() : 'Candidate';
+        const vacancyTitle = appWithVacancy?.vacancy?.title || 'a position';
+        await notifyOfferDeclined(
+          offer.company_id,
+          offer.created_by_user_id,
+          candidateName,
+          vacancyTitle,
+        );
+      } catch (e) { /* swallow */ }
+    });
+
+    return updated;
   }
 
   // ─── Notifications ────────────────────────────────────────────────────────────
@@ -1420,14 +1694,10 @@ export class CandidateService {
         );
       } catch (uploadError) {
         console.error(
-          '[addExperience] Cloudinary upload failed, using local fallback:',
+          '[addExperience] Cloudinary upload failed:',
           uploadError,
         );
-        documentUrl = await CloudinaryService.saveLocalFallback(
-          file.buffer,
-          file.originalname,
-          'candidates/experience',
-        );
+        throw new AppError('Failed to upload experience document', 500);
       }
     }
 
@@ -1480,14 +1750,10 @@ export class CandidateService {
         );
       } catch (uploadError) {
         console.error(
-          '[updateExperience] Cloudinary upload failed, using local fallback:',
+          '[updateExperience] Cloudinary upload failed:',
           uploadError,
         );
-        documentUrl = await CloudinaryService.saveLocalFallback(
-          file.buffer,
-          file.originalname,
-          'candidates/experience',
-        );
+        throw new AppError('Failed to upload experience document', 500);
       }
     }
 
@@ -1548,14 +1814,10 @@ export class CandidateService {
         );
       } catch (uploadError) {
         console.error(
-          '[addEducation] Cloudinary upload failed, using local fallback:',
+          '[addEducation] Cloudinary upload failed:',
           uploadError,
         );
-        certificateUrl = await CloudinaryService.saveLocalFallback(
-          file.buffer,
-          file.originalname,
-          'candidates/education',
-        );
+        throw new AppError('Failed to upload education document', 500);
       }
     }
 
@@ -1606,14 +1868,10 @@ export class CandidateService {
         );
       } catch (uploadError) {
         console.error(
-          '[updateEducation] Cloudinary upload failed, using local fallback:',
+          '[updateEducation] Cloudinary upload failed:',
           uploadError,
         );
-        certificateUrl = await CloudinaryService.saveLocalFallback(
-          file.buffer,
-          file.originalname,
-          'candidates/education',
-        );
+        throw new AppError('Failed to upload education document', 500);
       }
     }
 

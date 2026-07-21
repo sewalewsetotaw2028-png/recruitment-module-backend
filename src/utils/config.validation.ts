@@ -632,6 +632,7 @@ const normalizeCompanyProfileInput = (input: unknown) => {
     phone: clean(raw.phone),
     address: clean(raw.address),
     website: clean(raw.website),
+    description: clean(raw.description),
   };
 };
 
@@ -649,6 +650,7 @@ export const updateCompanyProfileSchema = z.preprocess(
       phone: z.string().optional(),
       address: z.string().optional(),
       website: z.string().url().optional(),
+      description: z.string().optional(),
     })
     .strict(),
 );

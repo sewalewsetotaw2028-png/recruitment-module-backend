@@ -29,16 +29,12 @@ export const getVacancyById = async (
 ) => {
   try {
     const vacancy = await VacancyService.getVacancyById(
-      req.user!.company_id as number,
+      req.user!.company_id,
       String(req.params.vacancy_id),
     );
 
-    if (!vacancy) {
-      return res.status(404).json({ status: 'error', message: 'Vacancy not found' });
-    }
-
     const timeToFillDays =
-      vacancy.filled_at && vacancy.created_at
+      vacancy?.filled_at && vacancy?.created_at
         ? Math.round(
             (vacancy.filled_at.getTime() - vacancy.created_at.getTime()) /
               (1000 * 60 * 60 * 24),
@@ -240,7 +236,7 @@ export const getVacancyEvaluationSummary = async (
 ) => {
   try {
     const summary = await InterviewService.getVacancyEvaluationSummary(
-      req.user!.company_id,
+      String(req.user!.company_id),
       String(req.params.vacancy_id),
     );
     res.status(200).json({ status: 'success', data: summary });

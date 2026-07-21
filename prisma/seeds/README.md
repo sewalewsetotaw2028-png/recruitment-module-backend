@@ -45,6 +45,11 @@ The seed files are organized by data domain and must be run in the following ord
    - Recruitment Channels
    - Job Postings
 
+7. **07-offer-data.ts** - Offer management data
+   - SELECTED applications ready for offer creation
+   - Offers with different statuses (SENT, ACCEPTED, DECLINED, EXPIRED)
+   - Additional SELECTED applications for testing
+
 ## Usage
 
 ### Run All Seed Files (Recommended)
@@ -81,6 +86,7 @@ Each seed file depends on data from previous files. They must be run in order:
 - `04-interview-data.ts` requires `01-base-data.ts` and `03-candidate-data.ts`
 - `05-hiring-data.ts` requires `01-base-data.ts`, `02-master-data.ts`, `03-candidate-data.ts`, and `04-interview-data.ts`
 - `06-configuration-data.ts` requires `01-base-data.ts` and `02-master-data.ts`
+- `07-offer-data.ts` requires `01-base-data.ts`, `02-master-data.ts`, and `03-candidate-data.ts`
 
 ## Test Data Coverage
 
@@ -94,6 +100,8 @@ The seed files provide comprehensive test data for all 10 implementation prompts
 - **Hiring Minutes**: APPROVED, PENDING, REJECTED with full panels and signatories
 - **Talent Roster**: All 4 statuses (ACTIVE, PLACED, INACTIVE, WITHDRAWN)
 - **Test Vacancy**: VAC-TEST-001 with 3 evaluated candidates for evaluation testing
+- **Offers**: 4 offers with different statuses (SENT, ACCEPTED, DECLINED, EXPIRED)
+- **SELECTED Applications**: 6 applications ready for offer creation
 
 ## Test User Credentials
 

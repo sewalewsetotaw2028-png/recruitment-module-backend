@@ -4,6 +4,11 @@ import {
   CreateHiringMinuteDTO,
   UpdateHiringMinuteDTO,
 } from '../types/recruitment.types';
+import {
+  notifyCandidateSelected,
+  notifyCandidateRejectedAfterEvaluation,
+  notifyTalentRosterAdded,
+} from '../utils/notificationWiring';
 
 const parseDate = (value?: string) => {
   if (!value) return undefined;
@@ -475,13 +480,32 @@ export class HiringMinuteService {
 
       // 4. Dispatch CANDIDATE_SELECTED notification if candidate exists
       if (updated.selected_candidate) {
-        // Notification dispatch would happen here
-        // await NotificationService.dispatch({
-        //   type: 'CANDIDATE_SELECTED',
-        //   recipient_id: updated.selected_candidate_id,
-        //   data: { hiring_minute_id: hiringMinuteId }
-        // });
+        setImmediate(async () => {
+          try {
+            const candidateName = `${updated.selected_candidate?.first_name || ''} ${updated.selected_candidate?.last_name || ''}`.trim();
+            if (candidateName && updated.selected_candidate_id) {
+              await notifyCandidateSelected(
+                companyIdNum,
+                updated.selected_candidate_id,
+                candidateName,
+                updated.vacancy?.title || 'a position',
+              );
+            }
+          } catch (e) { /* swallow */ }
+        });
       }
+
+      // 5. Dispatch Evaluations Complete notification to HR
+      setImmediate(async () => {
+        try {
+          const { notifyEvaluationsComplete } = await import('../utils/notificationWiring');
+          await notifyEvaluationsComplete(
+            companyIdNum,
+            updated.vacancy?.title || 'a position',
+            1,
+          );
+        } catch (e) { /* swallow */ }
+      });
 
       return updated;
     });
@@ -638,11 +662,16 @@ export class HiringMinuteService {
         });
 
         // Dispatch TALENT_ROSTER_ADDED notification
-        // await NotificationService.dispatch({
-        //   type: 'TALENT_ROSTER_ADDED',
-        //   recipient_id: app.candidate_id,
-        //   data: { hiring_minute_id: hiringMinuteId }
-        // });
+        setImmediate(async () => {
+          try {
+            const candidateName = `${app.candidate?.first_name || ''} ${app.candidate?.last_name || ''}`.trim();
+            await notifyTalentRosterAdded(
+              companyIdNum,
+              app.candidate_id,
+              candidateName || app.candidate?.email || 'Candidate',
+            );
+          } catch (e) { /* swallow */ }
+        });
 
         results.push({
           application_id: appId,
@@ -696,11 +725,17 @@ export class HiringMinuteService {
         }
 
         // Dispatch CANDIDATE_REJECTED notification
-        // await NotificationService.dispatch({
-        //   type: 'CANDIDATE_REJECTED',
-        //   recipient_id: app.candidate_id,
-        //   data: { vacancy_title: minute.vacancy.title }
-        // });
+        setImmediate(async () => {
+          try {
+            const candidateName = `${app.candidate?.first_name || ''} ${app.candidate?.last_name || ''}`.trim();
+            await notifyCandidateRejectedAfterEvaluation(
+              companyIdNum,
+              app.candidate_id,
+              candidateName || app.candidate?.email || 'Candidate',
+              minute.vacancy?.title || 'a position',
+            );
+          } catch (e) { /* swallow */ }
+        });
 
         // Record the regret notification with a prefixed sentinel so the
         // duplicate-send check above can do an exact prefix match.

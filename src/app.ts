@@ -17,14 +17,27 @@ import reportingRoutes from './routes/reporting.routes';
 import configRoutes from './routes/config.routes';
 import jobPostingRoutes from './routes/jobPosting.routes';
 import usersRoutes from './routes/users.routes';
-import { startVacancyExpiryScheduler } from './jobs/closeExpiredVacancies';
+import notificationRoutes from './routes/notification.routes';
+import { VacancyService } from './services/vacancy.service';
 
 const app: Application = express();
 
 // 1. GLOBAL MIDDLEWARES
 app.use(helmet({
   crossOriginEmbedderPolicy: false,
-})); // Security headers with relaxed CORS for images
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", "data:", "blob:", "https://*.googleusercontent.com"],
+      connectSrc: ["'self'"],
+      fontSrc: ["'self'"],
+      objectSrc: ["'none'"],
+      frameSrc: ["'self'"],
+    },
+  },
+})); // Security headers with relaxed CSP for Google OAuth and magic link callbacks
 app.use(cors()); // Enable CORS
 app.use(morgan('dev')); // Request logging
 app.use(express.json()); // Body parser
@@ -79,8 +92,11 @@ app.use('/api/v1/job-postings', jobPostingRoutes);
 // users listing
 app.use('/api/v1/users', usersRoutes);
 
+// notification routes
+app.use('/api/v1/notifications', notificationRoutes);
+
 // Start background jobs
-startVacancyExpiryScheduler();
+VacancyService.startVacancyExpiryScheduler();
 
 // 4. GLOBAL ERROR HANDLER (Must be last)
 app.use(errorHandler);

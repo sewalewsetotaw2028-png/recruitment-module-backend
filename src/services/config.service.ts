@@ -920,8 +920,7 @@ export class ConfigService {
 
     // If criteria array is provided, replace all EvaluationCriteria atomically
     if (data.criteria) {
-      const criteria = data.criteria;
-      const weightSum = criteria.reduce((sum, c) => sum + c.weight, 0);
+      const weightSum = data.criteria.reduce((sum, c) => sum + c.weight, 0);
       if (weightSum !== 100) {
         throw new AppError('Criteria weights must sum to 100', 400);
       }
@@ -934,13 +933,13 @@ export class ConfigService {
 
         // Insert new criteria
         await tx.evaluationCriteria.createMany({
-          data: criteria.map((c) => ({
+          data: data.criteria?.map((c) => ({
             template_id: id,
             name: c.name,
             weight: c.weight,
             max_score: c.maxScore ?? 10,
             order: c.order,
-          })),
+          })) ?? [],
         });
 
         // Update template
@@ -1269,9 +1268,7 @@ export class ConfigService {
       where: { id: interviewId },
       select: {
         interview_category_id: true,
-        application: {
-          select: { company_id: true },
-        },
+        application_id: true,
       },
     });
 
@@ -1279,7 +1276,25 @@ export class ConfigService {
       throw new AppError('Interview not found', 404);
     }
 
-    const companyId = interview.application?.company_id;
+    const application = await prisma.application.findUnique({
+      where: { id: interview.application_id },
+      select: { vacancy_id: true },
+    });
+
+    if (!application) {
+      throw new AppError('Application not found', 404);
+    }
+
+    const vacancy = await prisma.vacancy.findUnique({
+      where: { id: application.vacancy_id },
+      select: { company_id: true },
+    });
+
+    if (!vacancy) {
+      throw new AppError('Vacancy not found', 404);
+    }
+
+    const companyId = vacancy.company_id;
     if (!companyId) {
       throw new AppError('Interview company not found', 500);
     }
@@ -2530,6 +2545,7 @@ export class ConfigService {
       phone?: string;
       address?: string;
       website?: string;
+      description?: string;
     },
   ) {
     const company = await prisma.company.findUnique({
@@ -2557,6 +2573,7 @@ export class ConfigService {
         ...(data.phone !== undefined && { phone: data.phone }),
         ...(data.address !== undefined && { address: data.address }),
         ...(data.website !== undefined && { website: data.website }),
+        ...(data.description !== undefined && { description: data.description }),
       },
     });
   }

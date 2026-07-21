@@ -20,6 +20,7 @@ model Company {
   phone                          String?
   address                        String?
   website                        String?
+  description                    String?
   is_active                      Boolean                       @default(true)
   is_deleted                     Boolean                       @default(false)
   deleted_at                     DateTime?
@@ -71,6 +72,8 @@ model User {
   created_at             DateTime                     @default(now())
   updated_at             DateTime                     @updatedAt
   is_email_verified      Boolean                      @default(false)
+  email_verification_token String?
+  email_verification_expires DateTime?
   terms_accepted         Boolean                      @default(false)
   google_id              String?
   employee_id            String?
@@ -466,6 +469,8 @@ model Candidate {
   created_at             DateTime                 @default(now())
   updated_at             DateTime                 @updatedAt
   is_email_verified      Boolean                  @default(false)
+  email_verification_token String?
+  email_verification_expires DateTime?
   terms_accepted         Boolean                  @default(false)
   google_id              String?
   gender                 Gender?
@@ -700,6 +705,7 @@ model InterviewEvaluation {
   interview_category     InterviewCategory?           @relation(fields: [interview_category_id], references: [id])
   interview              Interview                    @relation(fields: [interview_id], references: [id], onDelete: Cascade)
 
+  @@unique([interview_id, evaluator_id])
   @@map("interview_evaluation")
 }
 
@@ -746,6 +752,7 @@ model InterviewQuestionBank {
   questions             InterviewQuestion[]
   interview_category    InterviewCategory?  @relation(fields: [interview_category_id], references: [id])
 
+  @@unique([company_id, title])
   @@map("interview_question_bank")
 }
 
@@ -771,6 +778,9 @@ model Offer {
   candidate_id       String
   created_by_user_id String
   salary             Decimal     @db.Decimal(12, 2)
+  employment_type    EmploymentType?
+  template_id        String?
+  allowances         Json?
   start_date         DateTime
   expiry_date        DateTime
   status             OfferStatus @default(SENT)
@@ -1321,6 +1331,7 @@ enum NotificationType {
   APPLICATION_REJECTED
   INTERVIEW_SCHEDULED
   INTERVIEW_RESCHEDULED
+  INTERVIEW_CANCELLED
   CANDIDATE_SELECTED
   CANDIDATE_REJECTED
   OFFER_ISSUED

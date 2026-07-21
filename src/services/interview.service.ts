@@ -9,7 +9,16 @@ import {
   CreateEvaluationDTO,
   UpdateEvaluationDTO,
 } from '../types/interview.types';
-import { sendNotification } from '../utils/notificationHelper';
+import { NotificationType } from '@prisma/client';
+import { dispatchNotification } from '../utils/notificationHelper';
+import {
+  notifyCandidateShortlisted,
+  notifyCandidateRejected,
+  notifyInterviewScheduledForCandidate,
+  notifyInterviewScheduledForPanelist,
+  notifyInterviewRescheduled,
+  notifyInterviewCancelled,
+} from '../utils/notificationWiring';
 
 const toApplicationStatus = (status: string) => {
   switch (status.toLowerCase()) {
@@ -350,24 +359,34 @@ export class InterviewService {
     });
 
     if (persistedStatus === 'SHORTLISTED') {
-      await sendNotification(
-        company_id,
-        app.candidate_id,
-        'candidate',
-        'candidate_shortlisted',
-        `You have been shortlisted for ${app.vacancy.title}. Our team will contact you about the next steps soon.`,
-      );
+      setImmediate(async () => {
+        try {
+          const candidateName = `${app.candidate.first_name} ${app.candidate.last_name}`.trim();
+          await notifyCandidateShortlisted(
+            Number(company_id),
+            app.candidate_id,
+            candidateName,
+            app.vacancy.title,
+            data.application_id,
+          );
+        } catch (e) { /* swallow */ }
+      });
     } else if (
       persistedStatus === 'REJECTED' ||
       persistedStatus === 'MOVED_TO_TALENT_ROSTER'
     ) {
-      await sendNotification(
-        company_id,
-        app.candidate_id,
-        'candidate',
-        'candidate_rejected',
-        `Thank you for your interest in the ${app.vacancy.title} position. We will not be progressing your application further at this stage.`,
-      );
+      setImmediate(async () => {
+        try {
+          const candidateName = `${app.candidate.first_name} ${app.candidate.last_name}`.trim();
+          await notifyCandidateRejected(
+            Number(company_id),
+            app.candidate_id,
+            candidateName,
+            app.vacancy.title,
+            data.application_id,
+          );
+        } catch (e) { /* swallow */ }
+      });
     }
 
     return updated;
@@ -389,7 +408,95 @@ export class InterviewService {
     });
   }
 
-  // 3. Interview Evaluation: Record Outcome (FR-40, FR-76)
+  // 3. Mark Interview as Completed (separate step before evaluation)
+  static async markInterviewCompleted(company_id: string, interview_id: string) {
+    const interview = await prisma.interview.findUnique({
+      where: { id: interview_id },
+      include: {
+        application: {
+          include: {
+            candidate: true,
+            vacancy: true,
+          },
+        },
+      },
+    });
+
+    if (!interview) throw new AppError('Interview not found', 404);
+    assertCompanyApplication(interview.application, company_id);
+
+    if (interview.status === 'COMPLETED') {
+      throw new AppError('Interview is already completed', 400);
+    }
+
+    return await prisma.$transaction(async (tx) => {
+      const updatedInterview = await tx.interview.update({
+        where: { id: interview_id },
+        data: { status: 'COMPLETED' },
+      });
+
+      await tx.application.update({
+        where: { id: interview.application.id },
+        data: {
+          status: 'INTERVIEW_COMPLETED',
+          current_stage: 'EVALUATION',
+        },
+      });
+
+      setImmediate(async () => {
+        try {
+          const candidate = interview.application.candidate;
+          const candidateName = `${candidate.first_name} ${candidate.last_name}`.trim();
+          await notifyInterviewScheduledForCandidate(
+            Number(company_id),
+            interview.application.candidate_id,
+            candidateName,
+            interview.application.vacancy.title,
+            new Date().toLocaleDateString(),
+            'Completed',
+            'Completed',
+            null,
+            interview.id,
+          );
+        } catch (e) { /* swallow */ }
+      });
+
+      // Fire-and-forget evaluation pending notification to each panel member
+      setImmediate(async () => {
+        try {
+          const panels = await prisma.interviewPanel.findMany({
+            where: { interview_id },
+            include: {
+              user: { select: { id: true } },
+            },
+          });
+          const candidate = interview.application.candidate;
+          const candidateName = `${candidate.first_name} ${candidate.last_name}`.trim();
+          const vacancyTitle = interview.application.vacancy.title;
+          const interviewCategory = (interview as any).interview_category?.name || 'Interview';
+
+          for (const panel of panels) {
+            await dispatchNotification({
+              companyId: Number(company_id),
+              type: 'GENERAL' as NotificationType,
+              recipientUserId: panel.panel_member_id,
+              variables: {
+                title: 'Evaluation Pending',
+                message: `Please submit your evaluation for ${candidateName} (${vacancyTitle}, ${interviewCategory}).`,
+              },
+              channels: ['in_app'],
+              relatedEntityType: 'interview',
+              relatedEntityId: interview_id,
+            });
+          }
+        } catch (e) { /* swallow */ }
+      });
+
+      return updatedInterview;
+    });
+  }
+
+  // 4. Interview Evaluation: Record Outcome (FR-40, FR-76)
   static async recordEvaluation(company_id: string, data: SubmitEvaluationDTO) {
     const interviewDetails = await prisma.interview.findUnique({
       where: { id: data.interview_id },
@@ -406,16 +513,16 @@ export class InterviewService {
     if (!interviewDetails) throw new AppError('Interview not found', 404);
     assertCompanyApplication(interviewDetails.application, company_id);
 
+    // Require interview to be completed before evaluation
+    if (interviewDetails.status !== 'COMPLETED') {
+      throw new AppError('Interview must be marked as completed before evaluation', 400);
+    }
+
     const application = interviewDetails.application;
 
     return await prisma.$transaction(async (tx) => {
-      const updatedInterview = await tx.interview.update({
-        where: { id: data.interview_id },
-        data: { status: 'COMPLETED' },
-      });
-
       const isPassed = data.status === 'passed';
-      const newAppStatus = isPassed ? 'SELECTED' : 'REJECTED';
+      const newAppStatus = isPassed ? 'UNDER_EVALUATION' : 'REJECTED';
       const newStage = isPassed ? 'EVALUATION' : 'CLOSED';
 
       await tx.application.update({
@@ -430,21 +537,36 @@ export class InterviewService {
         ? `Congratulations! You have passed Round ${interviewDetails.round} for ${application.vacancy.title}.`
         : `Thank you for your interest in the ${application.vacancy.title} position. Unfortunately, we will not be moving forward with your application at this time.`;
 
-      await sendNotification(
-        company_id,
-        application.candidate_id,
-        'candidate',
-        isPassed ? 'interview_passed' : 'regret_letter',
-        message,
-      );
+      setImmediate(async () => {
+        try {
+          const candidateName = `${application.candidate.first_name} ${application.candidate.last_name}`.trim();
+          if (isPassed) {
+            await notifyCandidateShortlisted(
+              Number(company_id),
+              application.candidate_id,
+              candidateName,
+              application.vacancy.title,
+              application.id,
+            );
+          } else {
+            await notifyCandidateRejected(
+              Number(company_id),
+              application.candidate_id,
+              candidateName,
+              application.vacancy.title,
+              application.id,
+            );
+          }
+        } catch (e) { /* swallow */ }
+      });
 
-      return updatedInterview;
+      return interviewDetails;
     });
   }
 
   // 4. Reporting: List all interviews for the company (FR-34)
   static async getInterviews(company_id: string) {
-    return await prisma.interview.findMany({
+    const interviews = await prisma.interview.findMany({
       where: {
         application: {
           company_id: parseInt(company_id, 10),
@@ -453,6 +575,36 @@ export class InterviewService {
       include: interviewInclude,
       orderBy: { start_time: 'asc' },
     });
+    
+    // Transform to include application_id as a flat field for frontend compatibility
+    return interviews.map(interview => ({
+      ...interview,
+      applicationId: interview.application_id,
+      candidateName: `${interview.application.candidate.first_name} ${interview.application.candidate.last_name}`,
+      vacancyTitle: interview.application.vacancy.title,
+    }));
+  }
+
+  // Get interviews for a specific vacancy
+  static async getInterviewsByVacancy(company_id: string, vacancy_id: string) {
+    const interviews = await prisma.interview.findMany({
+      where: {
+        application: {
+          company_id: parseInt(company_id, 10),
+          vacancy_id: vacancy_id,
+        },
+      },
+      include: interviewInclude,
+      orderBy: { start_time: 'asc' },
+    });
+    
+    // Transform to include application_id as a flat field for frontend compatibility
+    return interviews.map(interview => ({
+      ...interview,
+      applicationId: interview.application_id,
+      candidateName: `${interview.application.candidate.first_name} ${interview.application.candidate.last_name}`,
+      vacancyTitle: interview.application.vacancy.title,
+    }));
   }
 
   static async getInterviewById(company_id: string, interview_id: string) {
@@ -557,13 +709,21 @@ export class InterviewService {
       },
     });
 
-    await sendNotification(
-      company_id,
-      app!.candidate_id,
-      'candidate',
-      'interview_scheduled',
-      `Your interview for ${app!.vacancy.title} is scheduled for ${data.start_time}`,
-    );
+    setImmediate(async () => {
+      try {
+        await notifyInterviewScheduledForCandidate(
+          Number(company_id),
+          app!.candidate_id,
+          'Candidate',
+          app!.vacancy.title,
+          new Date(data.start_time).toLocaleDateString(),
+          new Date(data.start_time).toLocaleTimeString(),
+          'Virtual',
+          data.meeting_link,
+          interview.id,
+        );
+      } catch (e) { /* swallow */ }
+    });
 
     return interview;
   }
@@ -631,13 +791,21 @@ export class InterviewService {
     });
 
     if (isReschedule) {
-      await sendNotification(
-        company_id,
-        interview.application.candidate_id,
-        'candidate',
-        'interview_rescheduled',
-        `Your interview for ${interview.application.vacancy.title} has been rescheduled to ${nextStart.toISOString()}. Reason: ${data.rescheduled_reason}`,
-      );
+      setImmediate(async () => {
+        try {
+          await notifyInterviewRescheduled(
+            Number(company_id),
+            interview.application.candidate_id,
+            null,
+            'Candidate',
+            interview.application.vacancy.title,
+            nextStart.toLocaleDateString(),
+            nextStart.toLocaleTimeString(),
+            'Virtual',
+            interview.id,
+          );
+        } catch (e) { /* swallow */ }
+      });
     }
 
     return updated;
@@ -646,15 +814,61 @@ export class InterviewService {
   static async cancelInterview(company_id: string, interview_id: string) {
     const interview = await prisma.interview.findUnique({
       where: { id: interview_id },
-      include: { application: true },
+      include: {
+        application: {
+          include: {
+            candidate: { select: { first_name: true, last_name: true } },
+            vacancy: { select: { title: true } },
+          },
+        },
+        interview_panels: true,
+      },
     });
     if (!interview || String(interview.application.company_id) !== String(company_id)) {
       throw new AppError('Interview not found', 404);
     }
-    return await prisma.interview.update({
+
+    const cancelled = await prisma.interview.update({
       where: { id: interview_id },
       data: { status: 'CANCELLED' },
     });
+
+    // Fire-and-forget notifications for cancellation
+    setImmediate(async () => {
+      try {
+        const candidateName = `${interview.application.candidate?.first_name || ''} ${interview.application.candidate?.last_name || ''}`.trim() || 'Candidate';
+        const vacancyTitle = interview.application.vacancy?.title || 'the position';
+
+        // Notify candidate
+        await notifyInterviewCancelled(
+          Number(company_id),
+          interview.application.candidate_id,
+          null,
+          candidateName,
+          vacancyTitle,
+          interview_id,
+        );
+
+        // Notify each panel member (in-app only — the template addresses candidates)
+        for (const panel of interview.interview_panels || []) {
+          await dispatchNotification({
+            companyId: Number(company_id),
+            type: 'INTERVIEW_CANCELLED' as NotificationType,
+            recipientUserId: panel.panel_member_id,
+            recipientCandidateId: null,
+            variables: {
+              candidate_name: candidateName,
+              vacancy_title: vacancyTitle,
+            },
+            channels: ['in_app'],
+            relatedEntityType: 'interview',
+            relatedEntityId: interview_id,
+          });
+        }
+      } catch (e) { /* swallow */ }
+    });
+
+    return cancelled;
   }
 
   static async getEvaluations(company_id: string, interview_id: string) {
@@ -840,6 +1054,7 @@ export class InterviewService {
         | 'STRONGLY_RECOMMEND'
         | 'RECOMMEND'
         | 'HOLD'
+        | 'NEUTRAL'
         | 'DO_NOT_RECOMMEND';
     },
   ) {
@@ -895,13 +1110,12 @@ export class InterviewService {
       );
     }
 
-    // 4. Resolve active evaluation template (by category or fallback to Standard)
-    const template = await prisma.interviewEvaluationTemplate.findFirst({
+    // 4. Resolve active evaluation template (by category or fallback to default)
+    let template = await prisma.interviewEvaluationTemplate.findFirst({
       where: {
         company_id: Number(company_id),
-        ...(interview.interview_category_id
-          ? { interview_category_id: interview.interview_category_id }
-          : { interview_category_id: null }),
+        interview_category_id: interview.interview_category_id,
+        is_active: true,
       },
       include: {
         criteria: {
@@ -910,9 +1124,25 @@ export class InterviewService {
       },
     });
 
+    // Fallback to default template (interview_category_id: null) if category-specific not found
+    if (!template) {
+      template = await prisma.interviewEvaluationTemplate.findFirst({
+        where: {
+          company_id: Number(company_id),
+          interview_category_id: null,
+          is_active: true,
+        },
+        include: {
+          criteria: {
+            orderBy: { order: 'asc' },
+          },
+        },
+      });
+    }
+
     if (!template) {
       throw new AppError(
-        'No evaluation template found for this interview category',
+        'No evaluation template found. Please create a default evaluation template in Settings.',
         400,
       );
     }
@@ -980,7 +1210,7 @@ export class InterviewService {
         overall_score: Math.round(overallScore),
         scores_json: scoresJson,
         comments: payload.comments,
-        recommendation: payload.recommendation,
+        recommendation: payload.recommendation as any,
         interview_category_id: interview.interview_category_id,
         evaluation_template_id: template.id,
       },
@@ -1012,6 +1242,7 @@ export class InterviewService {
         | 'STRONGLY_RECOMMEND'
         | 'RECOMMEND'
         | 'HOLD'
+        | 'NEUTRAL'
         | 'DO_NOT_RECOMMEND';
     },
   ) {

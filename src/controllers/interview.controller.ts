@@ -21,7 +21,7 @@ export const updateStatus = async (
 ) => {
   try {
     const result = await InterviewService.updateApplicationStatus(
-      req.user!.company_id,
+      String(req.user!.company_id),
       updateStatusSchema.parse(req.body),
       req.user!.id,
     );
@@ -38,7 +38,7 @@ export const schedule = async (
 ) => {
   try {
     const interview = await InterviewService.scheduleInterview(
-      req.user!.company_id,
+      String(req.user!.company_id),
       scheduleInterviewSchema.parse(req.body),
     );
     res.status(201).json({ status: 'success', data: interview });
@@ -54,7 +54,7 @@ export const evaluate = async (
 ) => {
   try {
     const result = await InterviewService.recordEvaluation(
-      req.user!.company_id,
+      String(req.user!.company_id),
       recordEvaluationSchema.parse(req.body),
     );
     res.status(200).json({ status: 'success', data: result });
@@ -69,7 +69,23 @@ export const getOrgInterviews = async (
   next: NextFunction,
 ) => {
   try {
-    const list = await InterviewService.getInterviews(req.user!.company_id);
+    const list = await InterviewService.getInterviews(String(req.user!.company_id));
+    res.status(200).json({ status: 'success', data: list });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getVacancyInterviews = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction,
+) => {
+  try {
+    const list = await InterviewService.getInterviewsByVacancy(
+      String(req.user!.company_id),
+      String(req.params.vacancy_id),
+    );
     res.status(200).json({ status: 'success', data: list });
   } catch (error) {
     next(error);
@@ -83,7 +99,7 @@ export const getInterviewById = async (
 ) => {
   try {
     const interview = await InterviewService.getInterviewById(
-      req.user!.company_id,
+      String(req.user!.company_id),
       String(req.params.interview_id),
     );
     res.status(200).json({ status: 'success', data: interview });
@@ -99,7 +115,7 @@ export const createInterview = async (
 ) => {
   try {
     const interview = await InterviewService.createInterview(
-      req.user!.company_id,
+      String(req.user!.company_id),
       createInterviewSchema.parse(req.body),
     );
     res.status(201).json({ status: 'success', data: interview });
@@ -115,7 +131,7 @@ export const updateInterview = async (
 ) => {
   try {
     const interview = await InterviewService.updateInterview(
-      req.user!.company_id,
+      String(req.user!.company_id),
       String(req.params.interview_id),
       updateInterviewSchema.parse(req.body),
     );
@@ -132,7 +148,23 @@ export const cancelInterview = async (
 ) => {
   try {
     const interview = await InterviewService.cancelInterview(
-      req.user!.company_id,
+      String(req.user!.company_id),
+      String(req.params.interview_id),
+    );
+    res.status(200).json({ status: 'success', data: interview });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const markInterviewCompleted = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction,
+) => {
+  try {
+    const interview = await InterviewService.markInterviewCompleted(
+      String(req.user!.company_id),
       String(req.params.interview_id),
     );
     res.status(200).json({ status: 'success', data: interview });
@@ -148,7 +180,7 @@ export const getEvaluations = async (
 ) => {
   try {
     const list = await InterviewService.getEvaluations(
-      req.user!.company_id,
+      String(req.user!.company_id),
       String(req.params.interview_id),
     );
     res.status(200).json({ status: 'success', data: list });
@@ -164,7 +196,7 @@ export const createEvaluation = async (
 ) => {
   try {
     const evaluation = await InterviewService.createEvaluation(
-      req.user!.company_id,
+      String(req.user!.company_id),
       req.user!.id,
       createEvaluationSchema.parse(req.body),
     );
@@ -181,7 +213,7 @@ export const updateEvaluation = async (
 ) => {
   try {
     const evaluation = await InterviewService.updateEvaluation(
-      req.user!.company_id,
+      String(req.user!.company_id),
       String(req.params.evaluationId),
       req.user!.id,
       updateEvaluationSchema.parse(req.body),
@@ -198,7 +230,7 @@ export const getQuestionBank = async (
   next: NextFunction,
 ) => {
   try {
-    const questions = await InterviewService.getQuestionBank(req.user!.company_id);
+    const questions = await InterviewService.getQuestionBank(String(req.user!.company_id));
     res.status(200).json({ status: 'success', data: questions });
   } catch (error) {
     next(error);
@@ -212,7 +244,7 @@ export const generateQuestions = async (
 ) => {
   try {
     const questions = await InterviewService.generateQuestionsForApplication(
-      req.user!.company_id,
+      String(req.user!.company_id),
       generateQuestionsSchema.parse(req.body),
     );
     res.status(200).json({ status: 'success', data: questions });
@@ -235,7 +267,7 @@ export const submitEvaluation = async (
 ) => {
   try {
     const evaluation = await InterviewService.submitEvaluation(
-      req.user!.company_id,
+      String(req.user!.company_id),
       String(req.params.interviewId),
       req.user!.id,
       submitEvaluationSchema.parse(req.body),
@@ -260,7 +292,7 @@ export const updateEvaluationSubmission = async (
 ) => {
   try {
     const evaluation = await InterviewService.updateEvaluationSubmission(
-      req.user!.company_id,
+      String(req.user!.company_id),
       String(req.params.interviewId),
       String(req.params.evaluationId),
       req.user!.id,
@@ -283,7 +315,7 @@ export const getInterviewEvaluationSummary = async (
 ) => {
   try {
     const summary = await InterviewService.getInterviewEvaluationSummary(
-      req.user!.company_id,
+      String(req.user!.company_id),
       String(req.params.interviewId),
     );
     res.status(200).json({ status: 'success', data: summary });
@@ -303,7 +335,7 @@ export const getVacancyEvaluationSummary = async (
 ) => {
   try {
     const summary = await InterviewService.getVacancyEvaluationSummary(
-      req.user!.company_id,
+      String(req.user!.company_id),
       String(req.params.vacancy_id),
     );
     res.status(200).json({ status: 'success', data: summary });
@@ -323,7 +355,7 @@ export const getApplicationEvaluations = async (
 ) => {
   try {
     const evaluations = await InterviewService.getApplicationEvaluations(
-      req.user!.company_id,
+      String(req.user!.company_id),
       String(req.params.applicationId),
     );
     res.status(200).json({ status: 'success', data: evaluations });
@@ -343,7 +375,7 @@ export const getPendingEvaluations = async (
 ) => {
   try {
     const pending = await InterviewService.getPendingEvaluations(
-      req.user!.company_id,
+      String(req.user!.company_id),
       req.user!.id,
     );
     res.status(200).json({ status: 'success', data: pending });

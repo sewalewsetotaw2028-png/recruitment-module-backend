@@ -43,3 +43,26 @@ export const emailSigninSchema = z
     email: emailSchema,
   })
   .strict();
+
+const userTypeEnum = z.enum(['user', 'candidate']);
+
+export const magicLinkSchema = z
+  .object({
+    token: z.string().min(1, 'Magic link token is required'),
+    type: userTypeEnum,
+  })
+  .strict();
+
+export const verifyEmailSchema = z
+  .object({
+    token: z.string().min(1, 'Verification token is required'),
+    userType: userTypeEnum,
+  })
+  .strict();
+
+export const resendVerificationSchema = z
+  .object({
+    email: emailSchema,
+    userType: userTypeEnum,
+  })
+  .strict();

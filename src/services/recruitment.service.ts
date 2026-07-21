@@ -1,6 +1,11 @@
 import prisma from '../config/database';
 import { AppError } from '../utils/AppError';
 import { CreateRequestDTO, UpdateRequestDTO } from '../types/recruitment.types';
+import {
+  notifyRecruitmentRequestSubmitted,
+  notifyRecruitmentRequestApproved,
+  notifyRecruitmentRequestRejected,
+} from '../utils/notificationWiring';
 
 type CustomFieldPersistenceClient = Pick<
   typeof prisma,
@@ -861,6 +866,22 @@ export class RecruitmentService {
       },
     });
 
+    // Fire-and-forget notification
+    setImmediate(async () => {
+      try {
+        const requester = updated.requested_by;
+        const requesterName = requester ? `${requester.first_name} ${requester.last_name}`.trim() : 'Unknown';
+        await notifyRecruitmentRequestSubmitted(
+          Number(company_id),
+          requestId,
+          existing.request_number || '',
+          updated.job_title,
+          updated.department?.name || '',
+          requesterName,
+        );
+      } catch (e) { /* swallow */ }
+    });
+
     return await this.attachCustomFieldValues(
       company_id,
       'RecruitmentRequest',
@@ -872,6 +893,7 @@ export class RecruitmentService {
     company_id: string | number,
     requestId: string,
     approverUserId: string,
+    approvalNotes?: string,
   ) {
     const existing = assertCompanyRecord(await prisma.recruitmentRequest.findUnique({
       where: { id: requestId },
@@ -884,11 +906,21 @@ export class RecruitmentService {
       );
     }
 
+    // Merge CEO notes into hr_comments using a tag so they're preserved alongside HR notes
+    let updatedComments = existing.hr_comments || '';
+    if (approvalNotes?.trim()) {
+      const ceoTag = `__ceo_notes::${approvalNotes.trim()}`;
+      updatedComments = updatedComments
+        ? `${updatedComments}\n${ceoTag}`
+        : ceoTag;
+    }
+
     const updated = await prisma.recruitmentRequest.update({
       where: { id: requestId },
       data: {
         status: 'APPROVED',
         approved_by_user_id: approverUserId,
+        ...(approvalNotes?.trim() ? { hr_comments: updatedComments } : {}),
       },
       include: {
         department: true,
@@ -906,8 +938,26 @@ export class RecruitmentService {
         action: 'approved',
         entity_type: 'RecruitmentRequest',
         entity_id: requestId,
-        description: `Recruitment request approved: ${requestId}`,
+        description: approvalNotes?.trim()
+          ? `Recruitment request approved. CEO notes: ${approvalNotes.trim()}`
+          : `Recruitment request approved: ${requestId}`,
       },
+    });
+
+    // Fire-and-forget notification
+    setImmediate(async () => {
+      try {
+        const approver = await prisma.user.findUnique({ where: { id: approverUserId }, select: { first_name: true, last_name: true } });
+        const approverName = approver ? `${approver.first_name} ${approver.last_name}`.trim() : 'Unknown';
+        await notifyRecruitmentRequestApproved(
+          Number(company_id),
+          requestId,
+          existing.request_number || '',
+          updated.job_title,
+          existing.requested_by_user_id,
+          approverName,
+        );
+      } catch (e) { /* swallow */ }
     });
 
     return await this.attachCustomFieldValues(
@@ -939,7 +989,6 @@ export class RecruitmentService {
       data: {
         status: 'REJECTED',
         approved_by_user_id: rejectedByUserId,
-        // Preserve any existing __doc:: tag and append the rejection reason
         hr_comments: (() => {
           const existingComments = existing.hr_comments ?? '';
           const docTagMatch = existingComments.match(/(__doc::[^\n]*)/);
@@ -966,6 +1015,23 @@ export class RecruitmentService {
         entity_id: requestId,
         description: reason,
       },
+    });
+
+    // Fire-and-forget notification
+    setImmediate(async () => {
+      try {
+        const rejector = await prisma.user.findUnique({ where: { id: rejectedByUserId }, select: { first_name: true, last_name: true } });
+        const rejectorName = rejector ? `${rejector.first_name} ${rejector.last_name}`.trim() : 'Unknown';
+        await notifyRecruitmentRequestRejected(
+          Number(company_id),
+          requestId,
+          existing.request_number || '',
+          updated.job_title,
+          existing.requested_by_user_id,
+          rejectorName,
+          reason || '',
+        );
+      } catch (e) { /* swallow */ }
     });
 
     return await this.attachCustomFieldValues(

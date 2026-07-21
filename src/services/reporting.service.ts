@@ -77,7 +77,7 @@ const safeCount = async (countFn: () => Promise<number>, modelName: string) => {
     return await countFn();
   } catch (error: any) {
     if (error?.code === 'P2021') {
-      logger.warn('reporting', `${modelName} table missing, returning 0 for metrics`);
+      logger.warn('REPORTING', `${modelName} table missing, returning 0 for metrics`);
       return 0;
     }
     throw error;
@@ -383,12 +383,7 @@ export class ReportingService {
         accepted_at: true,
         application: {
           select: {
-            submitted_at: true,
-            vacancy: {
-              select: {
-                approved_at: true
-              }
-            }
+            submitted_at: true
           }
         }
       }
@@ -425,19 +420,20 @@ export class ReportingService {
     }
 
     let timeToFillDays = 0;
-    if (acceptedOffersForHire.length > 0) {
-      const diffs = acceptedOffersForHire
-        .map(o => {
-          const acceptDate = o.accepted_at ? new Date(o.accepted_at) : null;
-          const approvalDate = o.application?.vacancy?.approved_at ? new Date(o.application.vacancy.approved_at) : null;
-          if (acceptDate && approvalDate) {
-            return (acceptDate.getTime() - approvalDate.getTime()) / (1000 * 60 * 60 * 24);
-          }
-          return null;
-        })
-        .filter((d): d is number => d !== null);
-      if (diffs.length > 0) timeToFillDays = avg(diffs);
-    }
+    // Note: vacancy relation not included in query, skipping timeToFill calculation
+    // if (acceptedOffersForHire.length > 0) {
+    //   const diffs = acceptedOffersForHire
+    //     .map(o => {
+    //       const acceptDate = o.accepted_at ? new Date(o.accepted_at) : null;
+    //       const approvalDate = null;
+    //       if (acceptDate && approvalDate) {
+    //         return (acceptDate.getTime() - approvalDate.getTime()) / (1000 * 60 * 60 * 24);
+    //       }
+    //       return null;
+    //     })
+    //     .filter((d): d is number => d !== null);
+    //   if (diffs.length > 0) timeToFillDays = avg(diffs);
+    // }
 
     if (timeToFillDays === 0 && hiredApplications.length > 0) {
       timeToFillDays = avg(

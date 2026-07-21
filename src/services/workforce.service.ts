@@ -9,7 +9,14 @@ import {
   WorkforcePlanStatus,
 } from '@prisma/client';
 import {
-  CreatedepartmentDTO,
+  notifyWorkforcePlanSubmitted,
+  notifyWorkforcePlanForwarded,
+  notifyWorkforcePlanApproved,
+  notifyWorkforcePlanRejected,
+  notifyWorkforcePlanReturned,
+} from '../utils/notificationWiring';
+import {
+  CreatedepartmentDTO as CreateDepartmentDTO,
   CreateWorkforcePlanDTO,
   UpdateWorkforcePlanDTO,
 } from '../types/workforce.type';
@@ -414,7 +421,7 @@ export class WorkforceService {
   // --- Department Logic ---
   static async createDepartment(
     company_id: string | number,
-    data: CreatedepartmentDTO,
+    data: CreateDepartmentDTO,
   ) {
     const companyId = this.toCompanyId(company_id);
     const parentDepartmentId =
@@ -945,6 +952,21 @@ export class WorkforceService {
         orderBy: { created_at: 'asc' },
       });
 
+      // Fire-and-forget notification (don't block response on sending)
+      setImmediate(async () => {
+        try {
+          const creator = plan.created_by;
+          const submittedByName = creator ? `${creator.first_name} ${creator.last_name}`.trim() : 'Unknown';
+          const items = plan.workforce_plan_items || [];
+          const deptName = items[0]?.department?.name || '';
+          await notifyWorkforcePlanSubmitted(
+            companyId, planId, plan.title, actorUserId, submittedByName, deptName
+          );
+        } catch (e) {
+          // Swallow notification errors to avoid breaking the response
+        }
+      });
+
       return WorkforceService.normalizeWorkforcePlan({
         ...plan,
         approval_histories: histories,
@@ -1020,6 +1042,15 @@ export class WorkforceService {
         where: { entity_type: 'WorkforcePlan', entity_id: planId },
         include: { actor: { select: { first_name: true, last_name: true } } },
         orderBy: { created_at: 'asc' },
+      });
+
+      // Fire-and-forget notification
+      setImmediate(async () => {
+        try {
+          const actorUser = await prisma.user.findUnique({ where: { id: actorUserId }, select: { first_name: true, last_name: true } });
+          const forwardedByName = actorUser ? `${actorUser.first_name} ${actorUser.last_name}`.trim() : 'Unknown';
+          await notifyWorkforcePlanForwarded(companyId, planId, plan.title, forwardedByName);
+        } catch (e) { /* swallow */ }
       });
 
       return WorkforceService.normalizeWorkforcePlan({
@@ -1109,6 +1140,15 @@ export class WorkforceService {
         orderBy: { created_at: 'asc' },
       });
 
+      // Fire-and-forget notification
+      setImmediate(async () => {
+        try {
+          const actorUser = await prisma.user.findUnique({ where: { id: actorUserId }, select: { first_name: true, last_name: true } });
+          const actorName = actorUser ? `${actorUser.first_name} ${actorUser.last_name}`.trim() : 'Unknown';
+          await notifyWorkforcePlanReturned(companyId, planId, plan.title, existing.created_by_user_id, actorName, reason);
+        } catch (e) { /* swallow */ }
+      });
+
       return WorkforceService.normalizeWorkforcePlan({
         ...plan,
         approval_histories: histories,
@@ -1185,6 +1225,15 @@ export class WorkforceService {
         orderBy: { created_at: 'asc' },
       });
 
+      // Fire-and-forget notification
+      setImmediate(async () => {
+        try {
+          const approverUser = await prisma.user.findUnique({ where: { id: approverUserId }, select: { first_name: true, last_name: true } });
+          const approverName = approverUser ? `${approverUser.first_name} ${approverUser.last_name}`.trim() : 'Unknown';
+          await notifyWorkforcePlanApproved(companyId, planId, plan.title, existing.created_by_user_id, approverName);
+        } catch (e) { /* swallow */ }
+      });
+
       return WorkforceService.normalizeWorkforcePlan({
         ...plan,
         approval_histories: histories,
@@ -1219,6 +1268,15 @@ export class WorkforceService {
           action: 'WORKFORCE_PLAN_CLOSED',
           entity_type: 'WorkforcePlan',
           entity_id: planId,
+        },
+      });
+      await tx.recruitmentApprovalHistory.create({
+        data: {
+          entity_type: 'WorkforcePlan',
+          entity_id: planId,
+          action: 'APPROVED',
+          actor_user_id: actorUserId,
+          comments: null,
         },
       });
       const plan = await tx.workforcePlan.update({
@@ -1306,6 +1364,15 @@ export class WorkforceService {
         where: { entity_type: 'WorkforcePlan', entity_id: planId },
         include: { actor: { select: { first_name: true, last_name: true } } },
         orderBy: { created_at: 'asc' },
+      });
+
+      // Fire-and-forget notification
+      setImmediate(async () => {
+        try {
+          const rejectorUser = await prisma.user.findUnique({ where: { id: approverUserId }, select: { first_name: true, last_name: true } });
+          const rejectorName = rejectorUser ? `${rejectorUser.first_name} ${rejectorUser.last_name}`.trim() : 'Unknown';
+          await notifyWorkforcePlanRejected(companyId, planId, plan.title, existing.created_by_user_id, rejectorName, reason || '');
+        } catch (e) { /* swallow */ }
       });
 
       return WorkforceService.normalizeWorkforcePlan({

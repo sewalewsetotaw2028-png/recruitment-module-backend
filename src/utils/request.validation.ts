@@ -5,6 +5,9 @@ import {
   loginSchema as authLoginSchema,
   changePasswordSchema as authChangePasswordSchema,
   emailSigninSchema as authEmailSigninSchema,
+  verifyEmailSchema as authVerifyEmailSchema,
+  resendVerificationSchema as authResendVerificationSchema,
+  magicLinkSchema as authMagicLinkSchema,
 } from './auth.validation';
 
 import {
@@ -22,6 +25,12 @@ export const loginSchema = authLoginSchema;
 export const changePasswordSchema = authChangePasswordSchema;
 
 export const emailSigninSchema = authEmailSigninSchema;
+
+export const verifyEmailSchema = authVerifyEmailSchema;
+
+export const resendVerificationSchema = authResendVerificationSchema;
+
+export const magicLinkSchema = authMagicLinkSchema;
 
 export const candidateRegisterSchema = z
 
@@ -234,6 +243,12 @@ export const updateStatusSchema = z
 
     notes: z.string().optional(),
 
+    rejection_reason: z.string().optional(),
+
+    add_to_talent_roster: z.boolean().optional(),
+
+    future_fit_tag: z.string().optional(),
+
     screening_criteria_json: z.any().optional(),
   })
 
@@ -358,7 +373,8 @@ export const submitEvaluationSchema = z
     recommendation: z.enum([
       'STRONGLY_RECOMMEND',
       'RECOMMEND',
-      'HOLD',
+      'HOLD', // matches frontend option and EvaluationRecommendation schema enum
+      'NEUTRAL', // legacy alias — keep for backward compat
       'DO_NOT_RECOMMEND',
     ]),
   })
@@ -372,12 +388,22 @@ export const issueOfferSchema = z
 
   .object({
     application_id: uuidSchema,
-
     salary: z.number().positive(),
-
     start_date: dateTimeSchema,
-
     expiry_date: dateTimeSchema,
+    offer_notes: z.string().optional(),
+    template_id: z.string().optional(),
+    employment_type: z
+      .enum([
+        'FULL_TIME',
+        'PART_TIME',
+        'CONTRACT',
+        'INTERNSHIP',
+        'TEMPORARY',
+        'CONSULTANT',
+      ])
+      .optional(),
+    allowances: z.record(z.string(), z.number()).optional(),
   })
 
   .strict();

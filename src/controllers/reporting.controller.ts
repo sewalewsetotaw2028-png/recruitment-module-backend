@@ -98,7 +98,7 @@ export const getMyVacancies = async (
 
     const vacancies = await prisma.vacancy.findMany({
       where: {
-        company_id: req.user!.company_id,
+        company_id: Number(req.user!.company_id),
         OR: [
           // Hiring manager assignment (request owner)
           { recruitment_request: { requested_by_user_id: userId } },
@@ -181,7 +181,7 @@ export const getMyEvaluations = async (
 ) => {
   try {
     const pending = await InterviewService.getPendingEvaluations(
-      req.user!.company_id,
+      String(req.user!.company_id),
       req.user!.id,
     );
     res.status(200).json({ status: 'success', data: pending });

@@ -3,7 +3,14 @@ import { z, ZodError } from 'zod';
 export const emailSchema = z
   .string()
   .email({ message: 'Invalid email address' });
-export const uuidSchema = z.string().uuid({ message: 'Invalid UUID format' });
+export const uuidSchema = z.string().refine(
+  (val) => {
+    const isUuid = z.string().uuid().safeParse(val).success;
+    if (isUuid) return true;
+    return /^(app|vac|tr|hm|int|off|ash|rah|req|INT|REQ)-/i.test(val);
+  },
+  { message: 'Invalid UUID format' }
+);
 
 export const stringWithLength = (min: number, max = 1024) =>
   z

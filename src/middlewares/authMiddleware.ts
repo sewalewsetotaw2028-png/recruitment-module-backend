@@ -13,13 +13,14 @@ import {
 export interface AuthRequest extends Request {
   user?: {
     id: string;
-    company_id: any;
+    company_id: string | number;
     roles?: string[];
     role?: string;
     permissions?: PermissionKey[];
     candidate_id?: string;
     department_id?: string;
     department_name?: string;
+    is_email_verified?: boolean;
   };
   file?: Express.Multer.File;
 }
@@ -29,16 +30,18 @@ export const authenticate = async (
   res: Response,
   next: NextFunction,
 ) => {
+  // Accept token from Authorization header OR ?token= query param (for iframe/img src usage)
   const authHeader = req.headers.authorization;
+  const queryToken = typeof req.query.token === 'string' ? req.query.token : null;
+  const rawToken = authHeader?.startsWith('Bearer ')
+    ? authHeader.split(' ')[1]
+    : queryToken;
 
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+  if (!rawToken || rawToken === 'undefined' || rawToken === 'null') {
     return next(new AppError('Authentication required. Please log in.', 401));
   }
 
-  const token = authHeader.split(' ')[1];
-  if (!token || token === 'undefined' || token === 'null') {
-    return next(new AppError('Authentication required. Please log in.', 401));
-  }
+  const token = rawToken;
 
   try {
     const jwtSecret =
@@ -128,6 +131,7 @@ export const authenticate = async (
         candidate_id: candidate?.id,
         department_id: department ? String(department.id) : undefined,
         department_name: department?.name,
+        is_email_verified: user.is_email_verified,
       };
 
       next();
@@ -148,6 +152,7 @@ export const authenticate = async (
       candidate_id: candidate.id,
       department_id: undefined,
       department_name: undefined,
+      is_email_verified: candidate.is_email_verified,
     };
 
     next();

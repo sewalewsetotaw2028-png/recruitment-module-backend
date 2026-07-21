@@ -34,6 +34,7 @@ export interface CreateVacancyDTO {
   open_positions?: number;
   required_experience?: number;
   required_qualifications?: string;
+  opening_date?: string;
   closing_date?: string;
   benefits?: string;
   employmentTerms?: string;

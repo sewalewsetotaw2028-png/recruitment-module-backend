@@ -21,19 +21,25 @@ async function main() {
     const users = await prisma.user.findMany({
       where: { company_id: company.id },
     });
-    const userMap: Record<string, any> = users.reduce((map: Record<string, any>, user: any) => {
-      map[user.email] = user;
-      return map;
-    }, {});
+    const userMap: Record<string, any> = users.reduce(
+      (map: Record<string, any>, user: any) => {
+        map[user.email] = user;
+        return map;
+      },
+      {},
+    );
 
     // Get departments
     const departments = await prisma.department.findMany({
       where: { company_id: company.id },
     });
-    const departmentMap: Record<string, any> = departments.reduce((map: Record<string, any>, dept: any) => {
-      map[dept.name] = dept;
-      return map;
-    }, {});
+    const departmentMap: Record<string, any> = departments.reduce(
+      (map: Record<string, any>, dept: any) => {
+        map[dept.name] = dept;
+        return map;
+      },
+      {},
+    );
 
     // ── 1. Job Templates ────────────────────────────────────────────────────────
     const softwareEngineerTemplateId = '00000000-0000-4000-8000-000000000101';
@@ -191,10 +197,13 @@ async function main() {
             planning_year: 2026,
             status,
             created_by_user_id: creatorUser.id,
-            approved_by_user_id:
-              ['APPROVED', 'CLOSED', 'UNDER_CEO_REVIEW'].includes(status)
-                ? approverUser.id
-                : null,
+            approved_by_user_id: [
+              'APPROVED',
+              'CLOSED',
+              'UNDER_CEO_REVIEW',
+            ].includes(status)
+              ? approverUser.id
+              : null,
             approval_date: ['APPROVED', 'CLOSED'].includes(status)
               ? new Date()
               : null,
@@ -222,8 +231,15 @@ async function main() {
           },
         });
 
-        const item1 = await prisma.workforcePlanItem.create({
-          data: {
+        // NOTE: WorkforcePlanItem has no natural unique constraint (workforce_plan_id +
+        // job_title isn't unique in schema), so bare create() is NOT idempotent —
+        // re-running this seed would insert 2 new items on every run. We assign
+        // deterministic ids and upsert instead, same fix applied to VacancyJobPosting.
+        const item1 = await prisma.workforcePlanItem.upsert({
+          where: { id: `wfpi-${planIndex}-1` },
+          update: {},
+          create: {
+            id: `wfpi-${planIndex}-1`,
             workforce_plan_id: plan.id,
             department_id: dept.id,
             job_title: `${assignment.deptName} Specialist`,
@@ -237,8 +253,11 @@ async function main() {
             position_type: 'NEW',
           },
         });
-        const item2 = await prisma.workforcePlanItem.create({
-          data: {
+        const item2 = await prisma.workforcePlanItem.upsert({
+          where: { id: `wfpi-${planIndex}-2` },
+          update: {},
+          create: {
+            id: `wfpi-${planIndex}-2`,
             workforce_plan_id: plan.id,
             department_id: dept.id,
             job_title: `Lead ${assignment.deptName} Consultant`,
@@ -254,9 +273,16 @@ async function main() {
         });
         seededPlanItems.push(item1, item2);
 
+        // NOTE: RecruitmentApprovalHistory has no unique constraint on
+        // (entity_type, entity_id, action) in schema.prisma, so bare create() is NOT
+        // idempotent — re-running this seed duplicates every history row on every run.
+        // We assign deterministic ids per (plan, action) and upsert instead.
         if (status !== 'DRAFT') {
-          await prisma.recruitmentApprovalHistory.create({
-            data: {
+          await prisma.recruitmentApprovalHistory.upsert({
+            where: { id: `rah-wfp-${planIndex}-submitted` },
+            update: {},
+            create: {
+              id: `rah-wfp-${planIndex}-submitted`,
               entity_type: 'WorkforcePlan',
               entity_id: plan.id,
               action: 'SUBMITTED',
@@ -274,8 +300,11 @@ async function main() {
             'CLOSED',
           ].includes(status)
         ) {
-          await prisma.recruitmentApprovalHistory.create({
-            data: {
+          await prisma.recruitmentApprovalHistory.upsert({
+            where: { id: `rah-wfp-${planIndex}-reviewed` },
+            update: {},
+            create: {
+              id: `rah-wfp-${planIndex}-reviewed`,
               entity_type: 'WorkforcePlan',
               entity_id: plan.id,
               action: 'REVIEWED',
@@ -285,8 +314,11 @@ async function main() {
           });
         }
         if (['APPROVED', 'CLOSED'].includes(status)) {
-          await prisma.recruitmentApprovalHistory.create({
-            data: {
+          await prisma.recruitmentApprovalHistory.upsert({
+            where: { id: `rah-wfp-${planIndex}-approved` },
+            update: {},
+            create: {
+              id: `rah-wfp-${planIndex}-approved`,
               entity_type: 'WorkforcePlan',
               entity_id: plan.id,
               action: 'APPROVED',
@@ -296,8 +328,11 @@ async function main() {
           });
         }
         if (status === 'REJECTED') {
-          await prisma.recruitmentApprovalHistory.create({
-            data: {
+          await prisma.recruitmentApprovalHistory.upsert({
+            where: { id: `rah-wfp-${planIndex}-rejected` },
+            update: {},
+            create: {
+              id: `rah-wfp-${planIndex}-rejected`,
               entity_type: 'WorkforcePlan',
               entity_id: plan.id,
               action: 'REJECTED',
@@ -307,8 +342,11 @@ async function main() {
           });
         }
         if (status === 'RETURNED_FOR_REVISION') {
-          await prisma.recruitmentApprovalHistory.create({
-            data: {
+          await prisma.recruitmentApprovalHistory.upsert({
+            where: { id: `rah-wfp-${planIndex}-returned` },
+            update: {},
+            create: {
+              id: `rah-wfp-${planIndex}-returned`,
               entity_type: 'WorkforcePlan',
               entity_id: plan.id,
               action: 'RETURNED_FOR_REVISION',
@@ -346,8 +384,14 @@ async function main() {
         const wpi = seededPlanItems[requestIndex % seededPlanItems.length];
         const job_title = `${deptName} Analyst #${requestIndex}`;
 
+        // NOTE: `id` here is just a convenience label — the real DB constraint is the
+        // @unique on request_number. Upserting on `id` let this drift out of sync with
+        // request_number (e.g. after a prior partial run), causing P2002 on
+        // request_number even though the `id` lookup found no existing row. Upsert on
+        // request_number instead, same pattern as makeBackingRR() below.
+        const rrRequestNumber = `REQ-2026-${String(requestIndex).padStart(3, '0')}`;
         const rr = await prisma.recruitmentRequest.upsert({
-          where: { id: `rr-${requestIndex}` },
+          where: { request_number: rrRequestNumber },
           update: {},
           create: {
             id: `rr-${requestIndex}`,
@@ -363,11 +407,9 @@ async function main() {
             justification: `Core headcount addition for ${deptName} team.`,
             status: rrStatus,
             priority: 'MEDIUM',
-            request_number: `REQ-2026-${String(requestIndex).padStart(3, '0')}`,
+            request_number: rrRequestNumber,
             approved_by_user_id:
-              rrStatus === 'APPROVED'
-                ? userMap['hradmin1@erms.com'].id
-                : null,
+              rrStatus === 'APPROVED' ? userMap['hradmin1@erms.com'].id : null,
             hr_comments:
               rrStatus === 'REJECTED'
                 ? 'Position already filled or lack of approved budget.'
@@ -375,9 +417,13 @@ async function main() {
           },
         });
 
+        // Same idempotency fix as above: deterministic id + upsert instead of create().
         if (rrStatus !== 'DRAFT' && rrStatus !== 'CANCELLED') {
-          await prisma.recruitmentApprovalHistory.create({
-            data: {
+          await prisma.recruitmentApprovalHistory.upsert({
+            where: { id: `rah-rr-${requestIndex}-submitted` },
+            update: {},
+            create: {
+              id: `rah-rr-${requestIndex}-submitted`,
               entity_type: 'RecruitmentRequest',
               entity_id: rr.id,
               action: 'SUBMITTED',
@@ -387,8 +433,11 @@ async function main() {
           });
         }
         if (rrStatus === 'APPROVED') {
-          await prisma.recruitmentApprovalHistory.create({
-            data: {
+          await prisma.recruitmentApprovalHistory.upsert({
+            where: { id: `rah-rr-${requestIndex}-approved` },
+            update: {},
+            create: {
+              id: `rah-rr-${requestIndex}-approved`,
               entity_type: 'RecruitmentRequest',
               entity_id: rr.id,
               action: 'APPROVED',
@@ -398,8 +447,11 @@ async function main() {
           });
         }
         if (rrStatus === 'REJECTED') {
-          await prisma.recruitmentApprovalHistory.create({
-            data: {
+          await prisma.recruitmentApprovalHistory.upsert({
+            where: { id: `rah-rr-${requestIndex}-rejected` },
+            update: {},
+            create: {
+              id: `rah-rr-${requestIndex}-rejected`,
               entity_type: 'RecruitmentRequest',
               entity_id: rr.id,
               action: 'REJECTED',
@@ -434,8 +486,10 @@ async function main() {
       jobTitle: string,
       idx: number,
     ) => {
-      return await prisma.recruitmentRequest.create({
-        data: {
+      const requestNumber = `REQ-VAC-2026-${String(idx).padStart(3, '0')}`;
+      return await prisma.recruitmentRequest.upsert({
+        where: { request_number: requestNumber },
+        update: {
           company_id: company.id,
           planning_type: 'PLANNED',
           requested_by_user_id: userMap['hm1@erms.com'].id,
@@ -447,7 +501,21 @@ async function main() {
           justification: 'Backing vacancy for seed data.',
           status: 'APPROVED',
           priority: 'HIGH',
-          request_number: `REQ-VAC-2026-${String(idx).padStart(3, '0')}`,
+          approved_by_user_id: userMap['ceo1@erms.com'].id,
+        },
+        create: {
+          company_id: company.id,
+          planning_type: 'PLANNED',
+          requested_by_user_id: userMap['hm1@erms.com'].id,
+          department_id: departmentMap[deptName].id,
+          job_title: jobTitle,
+          position_name: jobTitle,
+          employment_type: 'FULL_TIME',
+          request_type: 'NEW_HEADCOUNT',
+          justification: 'Backing vacancy for seed data.',
+          status: 'APPROVED',
+          priority: 'HIGH',
+          request_number: requestNumber,
           approved_by_user_id: userMap['ceo1@erms.com'].id,
         },
       });

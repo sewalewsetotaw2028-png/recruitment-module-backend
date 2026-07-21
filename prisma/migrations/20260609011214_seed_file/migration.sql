@@ -37,7 +37,7 @@ CREATE TYPE "WorkforcePlanStatus" AS ENUM ('DRAFT', 'SUBMITTED', 'UNDER_HR_REVIE
 CREATE TYPE "RecruitmentRequestStatus" AS ENUM ('DRAFT', 'SUBMITTED', 'UNDER_REVIEW', 'APPROVED', 'REJECTED', 'CANCELLED');
 
 -- CreateEnum
-CREATE TYPE "Recruitmentrequest_type" AS ENUM ('NEW_HEADCOUNT', 'REPLACEMENT');
+CREATE TYPE "RecruitmentRequestType" AS ENUM ('NEW_HEADCOUNT', 'REPLACEMENT');
 
 -- CreateEnum
 CREATE TYPE "RecruitmentClassification" AS ENUM ('PLANNED', 'UNPLANNED');
@@ -55,13 +55,13 @@ CREATE TYPE "PriorityLevel" AS ENUM ('LOW', 'MEDIUM', 'HIGH', 'CRITICAL');
 CREATE TYPE "PositionType" AS ENUM ('NEW', 'REPLACEMENT');
 
 -- CreateEnum
-CREATE TYPE "employment_type" AS ENUM ('FULL_TIME', 'PART_TIME', 'CONTRACT', 'INTERNSHIP', 'TEMPORARY', 'CONSULTANT');
+CREATE TYPE "EmploymentType" AS ENUM ('FULL_TIME', 'PART_TIME', 'CONTRACT', 'INTERNSHIP', 'TEMPORARY', 'CONSULTANT');
 
 -- CreateEnum
 CREATE TYPE "VacancyStatus" AS ENUM ('DRAFT', 'OPEN', 'PUBLISHED', 'IN_PROGRESS', 'ON_HOLD', 'CLOSED', 'CANCELLED');
 
 -- CreateEnum
-CREATE TYPE "posting_status" AS ENUM ('DRAFT', 'PENDING', 'PUBLISHED', 'SUSPENDED', 'WITHDRAWN');
+CREATE TYPE "PostingStatus" AS ENUM ('DRAFT', 'PENDING', 'PUBLISHED', 'SUSPENDED', 'WITHDRAWN');
 
 -- CreateEnum
 CREATE TYPE "ApplicationStatus" AS ENUM ('SUBMITTED', 'UNDER_SCREENING', 'SHORTLISTED', 'INTERVIEW_SCHEDULED', 'INTERVIEW_COMPLETED', 'UNDER_EVALUATION', 'SELECTED', 'OFFER_ISSUED', 'OFFER_ACCEPTED', 'OFFER_DECLINED', 'REJECTED', 'MOVED_TO_TALENT_ROSTER');
@@ -553,7 +553,7 @@ CREATE TABLE "workforce_plan_item" (
     "workforce_plan_id" TEXT NOT NULL,
     "department_id" INTEGER NOT NULL,
     "job_title" TEXT NOT NULL,
-    "employment_type" "employment_type" NOT NULL,
+    "employment_type" "EmploymentType" NOT NULL,
     "headcount" INTEGER NOT NULL,
     "planned_start" TIMESTAMP(3) NOT NULL,
     "justification" TEXT NOT NULL,
@@ -592,8 +592,8 @@ CREATE TABLE "recruitment_request" (
     "requested_by_user_id" TEXT NOT NULL,
     "department_id" INTEGER NOT NULL,
     "job_title" TEXT NOT NULL,
-    "employment_type" "employment_type" NOT NULL,
-    "request_type" "Recruitmentrequest_type" NOT NULL,
+    "employment_type" "EmploymentType" NOT NULL,
+    "request_type" "RecruitmentRequestType" NOT NULL,
     "is_replacement" BOOLEAN NOT NULL DEFAULT false,
     "replacement_for_employee_id" TEXT,
     "replacement_reason" TEXT,
@@ -619,7 +619,7 @@ CREATE TABLE "job_template" (
     "id" TEXT NOT NULL,
     "company_id" INTEGER NOT NULL,
     "title" TEXT NOT NULL,
-    "employment_type" "employment_type" NOT NULL,
+    "employment_type" "EmploymentType" NOT NULL,
     "job_grade" TEXT,
     "summary" TEXT,
     "responsibilities" TEXT NOT NULL,
@@ -641,7 +641,7 @@ CREATE TABLE "job_description" (
     "responsibilities" TEXT NOT NULL,
     "requirements" TEXT NOT NULL,
     "qualifications" TEXT,
-    "employment_type" "employment_type",
+    "employment_type" "EmploymentType",
     "job_grade" TEXT,
     "version" INTEGER NOT NULL DEFAULT 1,
     "is_active" BOOLEAN NOT NULL DEFAULT true,
@@ -661,7 +661,7 @@ CREATE TABLE "vacancy" (
     "department_id" INTEGER NOT NULL,
     "location" TEXT NOT NULL,
     "application_type" "ApplicationType" NOT NULL DEFAULT 'EXTERNAL',
-    "employment_type" "employment_type" NOT NULL,
+    "employment_type" "EmploymentType" NOT NULL,
     "status" "VacancyStatus" NOT NULL DEFAULT 'DRAFT',
     "open_positions" INTEGER NOT NULL DEFAULT 1,
     "description" TEXT NOT NULL,
@@ -672,7 +672,7 @@ CREATE TABLE "vacancy" (
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMP(3) NOT NULL,
     "posted_at" TIMESTAMP(3),
-    "posting_status" "posting_status" NOT NULL DEFAULT 'PENDING',
+    "posting_status" "PostingStatus" NOT NULL DEFAULT 'PENDING',
     "vacancy_number" TEXT,
     "opening_date" TIMESTAMP(3),
     "closing_date" TIMESTAMP(3),
@@ -924,7 +924,7 @@ CREATE TABLE "interview_question_bank" (
     "title" TEXT NOT NULL,
     "job_grade" TEXT,
     "interview_category_id" TEXT,
-    "employment_type" "employment_type",
+    "employment_type" "EmploymentType",
     "description" TEXT,
     "is_active" BOOLEAN NOT NULL DEFAULT true,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -994,7 +994,7 @@ CREATE TABLE "hiring_minute" (
     "vacancy_id" TEXT NOT NULL,
     "prepared_by_id" TEXT NOT NULL,
     "preparation_date" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "recruitment_request_type" "Recruitmentrequest_type" NOT NULL,
+    "recruitment_request_type" "RecruitmentRequestType" NOT NULL,
     "recruitment_classification" "RecruitmentClassification" NOT NULL,
     "application_type" "ApplicationType" NOT NULL,
     "interview_date" TIMESTAMP(3),
@@ -1243,7 +1243,7 @@ CREATE TABLE "vacancy_job_posting" (
     "company_id" INTEGER NOT NULL,
     "vacancy_id" TEXT NOT NULL,
     "recruitment_channel_id" TEXT NOT NULL,
-    "posting_status" "posting_status" NOT NULL DEFAULT 'PENDING',
+    "posting_status" "PostingStatus" NOT NULL DEFAULT 'PENDING',
     "posted_at" TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP,
     "external_job_id" TEXT,
     "external_job_url" TEXT,

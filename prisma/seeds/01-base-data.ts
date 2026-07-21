@@ -413,27 +413,36 @@ async function main() {
         })),
         skipDuplicates: true,
       });
-      await prisma.phone.upsert({
-        where: { user_id_phone_type: { user_id: dbUser.id, phone_type: 'PRIVATE' } },
-        update: {},
-        create: {
-          company_id: company.id,
-          user_id: dbUser.id,
-          phone_number: '+251 911 000 000',
-          phone_type: 'PRIVATE',
-          is_primary: true,
-        },
+      // Phone: use findFirst + create because there is no unique composite on (user_id, phone_type)
+      const existingPhone = await prisma.phone.findFirst({
+        where: { user_id: dbUser.id, phone_type: 'PRIVATE' },
       });
-      await prisma.address.upsert({
-        where: { user_id: { user_id: dbUser.id } },
-        update: {},
-        create: {
-          company_id: company.id,
-          user_id: dbUser.id,
-          region: 'Addis Ababa',
-          city: 'Addis Ababa',
-        },
+      if (!existingPhone) {
+        await prisma.phone.create({
+          data: {
+            company_id: company.id,
+            user_id: dbUser.id,
+            phone_number: '+251 911 000 000',
+            phone_type: 'PRIVATE',
+            is_primary: true,
+          },
+        });
+      }
+
+      // Address: findFirst then create since Address has no unique constraint on user_id
+      const existingAddress = await prisma.address.findFirst({
+        where: { user_id: dbUser.id },
       });
+      if (!existingAddress) {
+        await prisma.address.create({
+          data: {
+            company_id: company.id,
+            user_id: dbUser.id,
+            region: 'Addis Ababa',
+            city: 'Addis Ababa',
+          },
+        });
+      }
     }
     console.log('✓ Users created (3 per role + 3 candidate portal users)');
 

@@ -14,6 +14,9 @@ import {
   refreshSchema,
   logoutSchema,
   emailSigninSchema,
+  verifyEmailSchema,
+  resendVerificationSchema,
+  magicLinkSchema,
 } from '../utils/request.validation';
 import {
   isValidRefreshToken,
@@ -111,6 +114,7 @@ export const getMe = async (
         role: roleSlug,
         roleSlug: roleSlug,
         permissions: permissions,
+        is_email_verified: user.is_email_verified,
         department_id: department ? String(department.id) : undefined,
         department_name: department?.name,
       },
@@ -181,8 +185,49 @@ export const emailSignin = async (
 ) => {
   try {
     const parsed = emailSigninSchema.parse(req.body);
-    const result = await AuthService.emailSignin(parsed.email);
+    const result = await AuthService.requestMagicLink(parsed.email, 'candidate');
     res.status(200).json({ status: 'success', data: result });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * GET /api/v1/auth/magic-link/callback?token=...&type=...
+ * Verify a magic link token and return auth tokens via HTML page (similar to Google callback).
+ */
+export const magicLinkCallback = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  try {
+    const parsed = magicLinkSchema.parse(req.query);
+    const result = await AuthService.verifyMagicLink(
+      parsed.token,
+      parsed.type,
+    );
+
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+
+    const redirectWithHash = `${frontendUrl}#token=${encodeURIComponent(result.token)}&refreshToken=${encodeURIComponent(result.refreshToken)}`;
+
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Signing in...</title>
+</head>
+<body>
+  <p>Signing you in...</p>
+  <script>
+    window.location.href = ${JSON.stringify(redirectWithHash)};
+  </script>
+</body>
+</html>`;
+
+    res.status(200).send(html);
   } catch (error) {
     next(error);
   }
@@ -197,6 +242,45 @@ export const googleRedirect = async (
     const redirectUrl = req.query.redirectUrl as string | undefined;
     const googleUrl = AuthService.getGoogleRedirectUrl(redirectUrl);
     res.redirect(googleUrl);
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * POST /api/v1/auth/verify-email
+ * Verify a user's or candidate's email address using a token.
+ */
+export const verifyEmail = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  try {
+    const parsed = verifyEmailSchema.parse(req.body);
+    const result = await AuthService.verifyEmail(parsed.token, parsed.userType);
+    res.status(200).json({ status: 'success', data: result });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * POST /api/v1/auth/resend-verification
+ * Resend the email verification email to a user or candidate.
+ */
+export const resendVerification = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  try {
+    const parsed = resendVerificationSchema.parse(req.body);
+    const result = await AuthService.resendEmailVerification(
+      parsed.email,
+      parsed.userType,
+    );
+    res.status(200).json({ status: 'success', data: result });
   } catch (error) {
     next(error);
   }
@@ -235,6 +319,8 @@ export const googleCallback = async (
       }
     }
 
+    const redirectWithHash = `${redirectUrl}#token=${encodeURIComponent(result.token)}&refreshToken=${encodeURIComponent(result.refreshToken)}`;
+
     const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -245,13 +331,7 @@ export const googleCallback = async (
 <body>
   <p>Signing in with Google...</p>
   <script>
-    try {
-      localStorage.setItem('token', ${JSON.stringify(result.token)});
-      localStorage.setItem('refreshToken', ${JSON.stringify(result.refreshToken)});
-    } catch (error) {
-      console.error('Failed to save auth tokens:', error);
-    }
-    window.location.href = ${JSON.stringify(redirectUrl)};
+    window.location.href = ${JSON.stringify(redirectWithHash)};
   </script>
 </body>
 </html>`;
